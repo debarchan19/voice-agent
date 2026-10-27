@@ -1,0 +1,15 @@
+# Agent runtime + plugins (all pinned to the same 1.8.x line so they stay compatible)
+livekit-agents[anthropic,deepgram,cartesia,silero,turn-detector]~=1.8.8
+
+# Token server
+livekit-api~=1.2
+fastapi~=0.159
+uvicorn[standard]~=0.54
+
+python-dotenv~=1.2
+
+# Web search fallback on the Greeter agent
+tavily-python~=0.8
+
+# Tests
+pytest~=9.1

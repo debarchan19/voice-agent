@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice Agent</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://unpkg.com/livekit-client@2.22.3/dist/livekit-client.umd.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+      background:
+        radial-gradient(900px 500px at 50% -10%, rgba(59, 130, 246, 0.14), transparent 60%),
+        radial-gradient(700px 400px at 90% 100%, rgba(139, 92, 246, 0.10), transparent 60%),
+        #07090d;
+    }
+
+    /* Orb: one element, look driven by data-state on <body> */
+    .orb-wrap { position: relative; width: 11rem; height: 11rem; }
+    .orb, .ring {
+      position: absolute; inset: 0; border-radius: 9999px;
+      transition: background 0.4s, box-shadow 0.4s, opacity 0.4s;
+    }
+    .orb {
+      background: radial-gradient(circle at 32% 28%, #3a4150, #161a22 70%);
+      box-shadow: inset 0 1px 1px rgba(255,255,255,0.12), 0 20px 60px -20px rgba(0,0,0,0.8);
+    }
+    .ring { border: 1px solid rgba(96, 165, 250, 0.5); opacity: 0; }
+
+    body[data-state="connecting"] .orb { animation: breathe 1.2s ease-in-out infinite; }
+    body[data-state="listening"] .orb {
+      background: radial-gradient(circle at 32% 28%, #60a5fa, #1d4ed8 72%);
+      box-shadow: 0 0 70px -10px rgba(59, 130, 246, 0.55), inset 0 1px 1px rgba(255,255,255,0.3);
+      animation: breathe 3.2s ease-in-out infinite;
+    }
+    body[data-state="thinking"] .orb {
+      background: radial-gradient(circle at 32% 28%, #a78bfa, #6d28d9 72%);
+      box-shadow: 0 0 70px -10px rgba(139, 92, 246, 0.55), inset 0 1px 1px rgba(255,255,255,0.3);
+      animation: breathe 1s ease-in-out infinite;
+    }
+    body[data-state="speaking"] .orb {
+      background: radial-gradient(circle at 32% 28%, #5eead4, #0f766e 72%);
+      box-shadow: 0 0 80px -8px rgba(45, 212, 191, 0.55), inset 0 1px 1px rgba(255,255,255,0.3);
+      animation: breathe 0.9s ease-in-out infinite;
+    }
+    body[data-state="speaking"] .ring { border-color: rgba(94, 234, 212, 0.55); animation: ripple 1.8s ease-out infinite; }
+    body[data-state="speaking"] .ring.r2 { animation-delay: 0.9s; }
+    body[data-state="listening"] .ring { animation: ripple 3.2s ease-out infinite; }
+    body[data-state="listening"] .ring.r2 { animation-delay: 1.6s; }
+
+    @keyframes breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.045); } }
+    @keyframes ripple { 0% { transform: scale(1); opacity: 0.55; } 100% { transform: scale(1.55); opacity: 0; } }
+
+    .dot { transition: background 0.3s, box-shadow 0.3s; background: #6b7280; }
+    body[data-state="connecting"] .dot { background: #fbbf24; }
+    body[data-state="listening"]  .dot { background: #60a5fa; box-shadow: 0 0 10px #60a5fa; }
+    body[data-state="thinking"]   .dot { background: #a78bfa; box-shadow: 0 0 10px #a78bfa; }
+    body[data-state="speaking"]   .dot { background: #2dd4bf; box-shadow: 0 0 10px #2dd4bf; }
+
+    .bubble-in { animation: rise 0.25s ease-out; }
+    @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+    /* Call details panel */
+    .step { transition: color 0.3s, background 0.3s, border-color 0.3s; }
+    .step[data-active="true"] { color: #fff; border-color: rgba(96, 165, 250, 0.6); background: rgba(59, 130, 246, 0.18); }
+    .step[data-done="true"] { color: #a3a3a3; }
+    .step.handoff { animation: handoff 1.6s ease-out; }
+    @keyframes handoff {
+      0%   { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.7); transform: scale(1.03); }
+      60%  { box-shadow: 0 0 0 10px rgba(96, 165, 250, 0); transform: scale(1); }
+      100% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0); }
+    }
+    .flash { animation: flash 1.4s ease-out; }
+    @keyframes flash { 0% { background: rgba(96, 165, 250, 0.22); } 100% { background: transparent; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .orb, .ring, .bubble-in, .flash, .step.handoff { animation: none !important; }
+    }
+  </style>
+</head>
+<body data-state="idle" class="min-h-screen text-neutral-100 antialiased">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center px-5 py-10 sm:py-14">
+
+    <header class="text-center">
+      <h1 class="text-2xl font-semibold tracking-tight sm:text-3xl">Where Is My Order</h1>
+      <p class="mt-2 text-sm text-neutral-400">Voice support for late and missing deliveries. Just start talking.</p>
+    </header>
+
+    <div class="mt-4 grid w-full flex-1 gap-8 lg:grid-cols-[minmax(0,1fr)_19rem]">
+    <div class="mx-auto flex w-full max-w-xl flex-col">
+    <section class="flex flex-1 flex-col items-center justify-center gap-7 py-10 sm:py-12">
+      <div class="orb-wrap" aria-hidden="true">
+        <div class="ring"></div>
+        <div class="ring r2"></div>
+        <div class="orb"></div>
+      </div>
+
+      <div class="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 backdrop-blur"
+           role="status" aria-live="polite">
+        <span class="dot h-2 w-2 rounded-full"></span>
+        <span id="status" class="text-xs font-medium uppercase tracking-[0.18em] text-neutral-300">Disconnected</span>
+      </div>
+
+      <button id="connect"
+        class="rounded-full bg-white px-8 py-3 text-sm font-semibold text-neutral-900 shadow-lg shadow-black/40
+               transition hover:bg-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400
+               disabled:cursor-wait disabled:opacity-60">
+        Start conversation
+      </button>
+      <p id="error" class="hidden max-w-sm text-center text-sm text-red-400"></p>
+    </section>
+
+    <section class="w-full">
+      <div class="mb-2 flex items-center justify-between px-1">
+        <h2 class="text-xs font-medium uppercase tracking-[0.18em] text-neutral-500">Transcript</h2>
+      </div>
+      <div id="transcript"
+        style="scroll-behavior: smooth; overflow-anchor: none"
+        class="flex h-72 flex-col gap-3 overflow-y-auto rounded-2xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur sm:p-5">
+      </div>
+    </section>
+    </div>
+
+    <aside class="mx-auto w-full max-w-xl lg:mt-12">
+      <h2 class="mb-2 px-1 text-xs font-medium uppercase tracking-[0.18em] text-neutral-500">Call details</h2>
+      <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur sm:p-5">
+        <p class="text-[10px] font-medium uppercase tracking-widest text-neutral-500">Active agent</p>
+        <ol id="agent-steps" class="mt-2 flex flex-col gap-1.5 text-sm text-neutral-500">
+          <li class="step rounded-lg border border-transparent px-3 py-2" data-agent="Greeter">Greeter</li>
+          <li class="step rounded-lg border border-transparent px-3 py-2" data-agent="Order Status">Order Status</li>
+          <li class="step rounded-lg border border-transparent px-3 py-2" data-agent="Resolution">Resolution</li>
+        </ol>
+
+        <dl class="mt-5 flex flex-col gap-1 border-t border-white/10 pt-4 text-sm">
+          <div id="row-customer" class="flex items-center justify-between gap-3 rounded-lg px-2 py-2">
+            <dt class="text-neutral-500">Customer</dt>
+            <dd class="flex items-center gap-2 text-right">
+              <span id="customer" class="text-neutral-400">Not verified</span>
+              <span id="verified-badge" class="hidden rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300 ring-1 ring-inset ring-emerald-400/30">Verified</span>
+            </dd>
+          </div>
+          <div id="row-order" class="flex items-center justify-between gap-3 rounded-lg px-2 py-2">
+            <dt class="text-neutral-500">Order</dt>
+            <dd id="order-id" class="font-mono text-neutral-100">&mdash;</dd>
+          </div>
+          <div id="row-status" class="flex items-center justify-between gap-3 rounded-lg px-2 py-2">
+            <dt class="text-neutral-500">Status</dt>
+            <dd><span id="order-status" class="text-neutral-500">&mdash;</span></dd>
+          </div>
+          <div id="row-delivery" class="flex items-center justify-between gap-3 rounded-lg px-2 py-2">
+            <dt class="text-neutral-500">Delivery</dt>
+            <dd id="delivery" class="text-neutral-100">&mdash;</dd>
+          </div>
+        </dl>
+      </div>
+
+      <h2 class="mb-2 mt-6 px-1 text-xs font-medium uppercase tracking-[0.18em] text-neutral-500">Activity</h2>
+      <ol id="activity" style="scroll-behavior: smooth"
+        class="flex h-52 flex-col gap-1.5 overflow-y-auto rounded-2xl border border-white/10 bg-white/[0.03] p-3 font-mono text-xs backdrop-blur">
+      </ol>
+
+      <h2 class="mb-2 mt-6 px-1 text-xs font-medium uppercase tracking-[0.18em] text-neutral-500">Notepad</h2>
+      <dl id="notepad"
+        class="flex flex-col gap-0.5 rounded-2xl border border-white/10 bg-white/[0.03] p-3 font-mono text-xs backdrop-blur">
+      </dl>
+    </aside>
+    </div>
+  </main>
+
+  <script>
+    const { Room, RoomEvent, Track } = LivekitClient;
+
+    const TOKEN_URL = "http://localhost:8000/token";
+    const MAX_MESSAGES = 5;
+    const STATES = {
+      listening: ["listening", "Listening"],
+      thinking: ["thinking", "Thinking"],
+      speaking: ["speaking", "Speaking"],
+    };
+
+    const STATE_TOPIC = "wismo.state";
+    const AGENT_ORDER = ["Greeter", "Order Status", "Resolution"];
+    const STATUS_STYLES = {
+      processing:       ["Processing", "bg-neutral-500/15 text-neutral-300 ring-neutral-400/30"],
+      shipped:          ["Shipped", "bg-blue-500/15 text-blue-300 ring-blue-400/30"],
+      out_for_delivery: ["Out for delivery", "bg-teal-500/15 text-teal-300 ring-teal-400/30"],
+      delivered:        ["Delivered", "bg-emerald-500/15 text-emerald-300 ring-emerald-400/30"],
+      delayed:          ["Delayed", "bg-amber-500/15 text-amber-300 ring-amber-400/30"],
+      cancelled:        ["Cancelled", "bg-red-500/15 text-red-300 ring-red-400/30"],
+      returned:         ["Returned", "bg-violet-500/15 text-violet-300 ring-violet-400/30"],
+    };
+    const BADGE_BASE = "inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset";
+    const MAX_LOG_LINES = 8;
+
+    const btn = document.getElementById("connect");
+    const statusEl = document.getElementById("status");
+    const errorEl = document.getElementById("error");
+    const transcriptEl = document.getElementById("transcript");
+
+    let room = null;
+    // segmentId -> bubble element; Map keeps first-seen order so the oldest is evicted first
+    const messages = new Map();
+
+    const steps = [...document.querySelectorAll("#agent-steps .step")];
+    const customerEl = document.getElementById("customer");
+    const orderIdEl = document.getElementById("order-id");
+    const orderStatusEl = document.getElementById("order-status");
+    const deliveryEl = document.getElementById("delivery");
+    const verifiedBadge = document.getElementById("verified-badge");
+    const activityEl = document.getElementById("activity");
+    const notepadEl = document.getElementById("notepad");
+    const notepadRows = new Map(); // key -> value element
+    let activeAgent = null;
+
+    function flash(row) {
+      row.classList.remove("flash");
+      void row.offsetWidth; // restart the animation
+      row.classList.add("flash");
+    }
+
+    // Update one field in place, highlighting its row only when the value actually changes.
+    function setField(el, text, rowId) {
+      if (el.textContent === text) return false;
+      el.textContent = text;
+      flash(document.getElementById(rowId));
+      return true;
+    }
+
+    function formatDate(iso) {
+      return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    }
+
+    function emptyLog() {
+      const li = document.createElement("li");
+      li.className = "m-auto text-neutral-600";
+      li.textContent = "Tool calls will appear here.";
+      return li;
+    }
+
+    function appendLog(text) {
+      if (!activityEl.querySelector("[data-line]")) activityEl.replaceChildren();
+      const li = document.createElement("li");
+      li.dataset.line = "";
+      li.className = "bubble-in flex gap-2 text-neutral-300";
+      const time = document.createElement("span");
+      time.className = "shrink-0 text-neutral-600";
+      time.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      const msg = document.createElement("span");
+      msg.textContent = text;
+      if (/failed|not found/i.test(text)) msg.className = "text-amber-300";
+      else if (/passed|sent|rescheduled|handed off/i.test(text)) msg.className = "text-emerald-300";
+      li.append(time, msg);
+      activityEl.appendChild(li);
+      while (activityEl.children.length > MAX_LOG_LINES) activityEl.firstElementChild.remove();
+      activityEl.scrollTop = activityEl.scrollHeight;
+    }
+
+    // Create each notepad row once, then only touch the value when it changes.
+    function updateNotepad(notepad) {
+      for (const [key, value] of Object.entries(notepad || {})) {
+        let valueEl = notepadRows.get(key);
+        if (!valueEl) {
+          const row = document.createElement("div");
+          row.className = "flex justify-between gap-3 rounded-md px-2 py-1";
+          const keyEl = document.createElement("dt");
+          keyEl.className = "shrink-0 text-neutral-500";
+          keyEl.textContent = key;
+          valueEl = document.createElement("dd");
+          valueEl.className = "min-w-0 break-words text-right text-neutral-200";
+          row.append(keyEl, valueEl);
+          notepadEl.appendChild(row);
+          notepadRows.set(key, valueEl);
+        }
+        const text = String(value);
+        if (valueEl.textContent !== text) {
+          const isFirst = valueEl.textContent === "";
+          valueEl.textContent = text;
+          valueEl.title = text;
+          if (!isFirst) flash(valueEl.parentElement);
+        }
+      }
+    }
+
+    function updatePanel(state) {
+      const activeIdx = AGENT_ORDER.indexOf(state.agent);
+      steps.forEach((step, i) => {
+        step.dataset.active = String(i === activeIdx);
+        step.dataset.done = String(activeIdx > -1 && i < activeIdx);
+      });
+      if (state.agent !== activeAgent && steps[activeIdx]) {
+        const step = steps[activeIdx];
+        step.classList.remove("handoff");
+        void step.offsetWidth; // restart the animation
+        step.classList.add("handoff");
+      }
+      activeAgent = state.agent;
+
+      if (setField(customerEl, state.verified ? state.customer : "Not verified", "row-customer")) {
+        customerEl.className = state.verified ? "text-neutral-100" : "text-neutral-400";
+        verifiedBadge.classList.toggle("hidden", !state.verified);
+      }
+      setField(orderIdEl, state.order_id || "—", "row-order");
+
+      const [label, style] = STATUS_STYLES[state.status] || ["—", ""];
+      if (setField(orderStatusEl, label, "row-status")) {
+        orderStatusEl.className = style ? `${BADGE_BASE} ${style}` : "text-neutral-500";
+      }
+      setField(deliveryEl, state.promised_date ? formatDate(state.promised_date) : "—", "row-delivery");
+
+      updateNotepad(state.notepad);
+      if (state.log) appendLog(state.log);
+    }
+
+    function resetPanel() {
+      steps.forEach((step) => { step.dataset.active = "false"; step.dataset.done = "false"; });
+      activeAgent = null;
+      customerEl.textContent = "Not verified";
+      customerEl.className = "text-neutral-400";
+      verifiedBadge.classList.add("hidden");
+      activityEl.replaceChildren(emptyLog());
+      notepadEl.replaceChildren();
+      notepadRows.clear();
+      orderIdEl.textContent = "—";
+      orderStatusEl.textContent = "—";
+      orderStatusEl.className = "text-neutral-500";
+      deliveryEl.textContent = "—";
+    }
+
+    function setState(state, label) {
+      document.body.dataset.state = state;
+      statusEl.textContent = label;
+    }
+
+    function showError(text) {
+      errorEl.textContent = text;
+      errorEl.classList.toggle("hidden", !text);
+    }
+
+    function setConnectedUI(connected) {
+      btn.textContent = connected ? "End conversation" : "Start conversation";
+      btn.classList.toggle("bg-white", !connected);
+      btn.classList.toggle("text-neutral-900", !connected);
+      btn.classList.toggle("hover:bg-neutral-200", !connected);
+      btn.classList.toggle("bg-red-500", connected);
+      btn.classList.toggle("text-white", connected);
+      btn.classList.toggle("hover:bg-red-400", connected);
+    }
+
+    function createBubble(isUser) {
+      const row = document.createElement("div");
+      row.className = `bubble-in flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`;
+
+      const who = document.createElement("span");
+      who.className = "px-1 text-[10px] font-medium uppercase tracking-widest text-neutral-500";
+      who.textContent = isUser ? "You" : "Assistant";
+
+      const bubble = document.createElement("div");
+      bubble.className = `max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+        isUser
+          ? "rounded-br-md bg-blue-600 text-white"
+          : "rounded-bl-md border border-white/10 bg-white/10 text-neutral-100"
+      }`;
+
+      row.append(who, bubble);
+      return bubble;
+    }
+
+    // Create a message once, then only update its text, so nothing re-renders or re-animates.
+    function upsertMessage(segmentId, text, isUser) {
+      let bubble = messages.get(segmentId);
+      if (!bubble) {
+        if (messages.size === 0) transcriptEl.replaceChildren();
+        bubble = createBubble(isUser);
+        transcriptEl.appendChild(bubble.parentElement);
+        messages.set(segmentId, bubble);
+        while (messages.size > MAX_MESSAGES) {
+          const [oldestId, oldest] = messages.entries().next().value;
+          oldest.parentElement.remove();
+          messages.delete(oldestId);
+        }
+      }
+      if (bubble.textContent !== text) bubble.textContent = text;
+      transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    }
+
+    function clearTranscript() {
+      messages.clear();
+      transcriptEl.replaceChildren(emptyState());
+    }
+
+    function emptyState() {
+      const p = document.createElement("p");
+      p.className = "m-auto text-center text-sm text-neutral-500";
+      p.textContent = "Your conversation will appear here.";
+      return p;
+    }
+
+    async function connect() {
+      showError("");
+      setState("connecting", "Connecting");
+      btn.disabled = true;
+      try {
+        const res = await fetch(TOKEN_URL);
+        if (!res.ok) throw new Error(`Token server returned ${res.status}`);
+        const { token, url } = await res.json();
+
+        room = new Room({ adaptiveStream: true, dynacast: true });
+
+        room.on(RoomEvent.TrackSubscribed, (track) => {
+          if (track.kind === Track.Kind.Audio) document.body.appendChild(track.attach());
+        });
+        room.on(RoomEvent.TrackUnsubscribed, (track) => {
+          track.detach().forEach((el) => el.remove());
+        });
+
+        // The agent publishes its state (listening / thinking / speaking) as a participant attribute.
+        room.on(RoomEvent.ParticipantAttributesChanged, (changed, participant) => {
+          if (participant.isLocal || !("lk.agent.state" in changed)) return;
+          const entry = STATES[changed["lk.agent.state"]];
+          if (entry) setState(...entry);
+        });
+
+        // The agent publishes call state (active agent, customer, order) on every hand-off and lookup.
+        room.on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
+          if (topic !== STATE_TOPIC) return;
+          try {
+            updatePanel(JSON.parse(new TextDecoder().decode(payload)));
+          } catch (err) {
+            console.warn("Bad call state message", err);
+          }
+        });
+
+        room.on(RoomEvent.Disconnected, () => {
+          room = null;
+          clearTranscript();
+          resetPanel();
+          setConnectedUI(false);
+          setState("idle", "Disconnected");
+        });
+
+        // The agent sends both user and agent transcriptions as text streams on this topic.
+        room.registerTextStreamHandler("lk.transcription", async (reader, participantInfo) => {
+          const segmentId = reader.info.attributes?.["lk.segment_id"] ?? reader.info.id;
+          const isUser = participantInfo.identity === room.localParticipant.identity;
+          let text = "";
+          for await (const chunk of reader) {
+            text += chunk;
+            upsertMessage(segmentId, text, isUser);
+          }
+        });
+
+        await room.connect(url, token);
+        await room.localParticipant.setMicrophoneEnabled(true);
+
+        setConnectedUI(true);
+        setState("listening", "Listening");
+      } catch (err) {
+        console.error(err);
+        if (room) await room.disconnect();
+        room = null;
+        setState("idle", "Disconnected");
+        showError(`Couldn't connect. ${err.message}`);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    btn.addEventListener("click", () => {
+      if (room) room.disconnect();
+      else connect();
+    });
+
+    clearTranscript();
+    resetPanel();
+  </script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+[project]
+name = "voice-agent"
+version = "0.1.0"
+description = "Multi-agent voice support for late and missing deliveries, built on LiveKit Agents"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "livekit-agents[anthropic,deepgram,cartesia,silero,turn-detector]~=1.8.8",
+    "livekit-api~=1.2",
+    "fastapi~=0.159",
+    "uvicorn[standard]~=0.54",
+    "python-dotenv~=1.2",
+    "tavily-python~=0.8",
+]
+
+[dependency-groups]
+dev = ["pytest~=9.1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
