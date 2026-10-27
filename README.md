@@ -1,14 +1,16 @@
 # Where Is My Order
 
-**A multi-agent voice assistant for late and missing deliveries.** Call in, get verified, hear what happened to your package in plain speech, reschedule or request a refund, and get a confirmation email, all in one natural conversation you can interrupt at any time.
+**A multi-agent voice assistant for late and missing deliveries, with a LangGraph brain and a LiveKit voice.** Call in, get verified, hear what happened to your package in plain speech, reschedule or request a refund, and get a confirmation email, all in one natural conversation you can interrupt at any time.
 
 ![Where Is My Order: voice call with live agent panel](docs/screenshot.png)
 
-*The browser client mid-call (sample session): the orb shows the call state, and the side panel shows the active agent, the verified customer, every tool call and the shared userdata.*
+*The browser client mid-call (sample session): the orb shows the call state, and the side panel shows the active agent, the verified customer, every tool call and the shared call data.*
 
 ## Built with
 
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-1.2-1C3C3C)
+![LangChain](https://img.shields.io/badge/LangChain-1C3C3C?logo=langchain&logoColor=white)
 ![LiveKit](https://img.shields.io/badge/LiveKit-Agents_1.8-000000)
 ![LLM](https://img.shields.io/badge/LLM-tool_calling-D97757)
 ![Deepgram](https://img.shields.io/badge/Deepgram-nova--3-13EF93)
@@ -27,7 +29,7 @@
 - **Explains the order** in plain spoken language, including why it's late, using the tracking history and the delay reason.
 - **Acts on the caller's request:** reschedules a delivery, opens a refund request or support ticket, or escalates to a human.
 - **Confirms by email** after any change, and says honestly if the email failed.
-- **Hands off between three specialist agents** (Greeter, Order Status, Resolution) while the caller experiences one continuous conversation.
+- **Hands off between three specialist agents** (Greeter, Order Status, Resolution) in a LangGraph graph, while the caller experiences one continuous conversation.
 - **Handles real conversation:** it waits when you pause mid-thought and stops talking the moment you interrupt.
 - **Shows its work:** a live panel makes every hand-off and tool call visible.
 
@@ -37,9 +39,11 @@ All customer and order data is fake and for demo purposes only.
 
 | Part | Choice | Why |
 |---|---|---|
-| Realtime transport | LiveKit Agents 1.8 | Handles WebRTC audio, the STT → LLM → TTS pipeline, interruptions and agent hand-offs |
+| Agent orchestration | LangGraph 1.2 | An explicit graph of agents, tools and hand-offs that can be drawn, checkpointed and unit tested |
+| LLM access | LangChain (`langchain-anthropic`) | Streaming and tool calling through one interface, so the graph isn't tied to a provider |
+| Realtime voice | LiveKit Agents 1.8 | Handles WebRTC audio, the STT → LLM → TTS pipeline and interruptions |
+| Voice ↔ graph bridge | `livekit-plugins-langchain` | Lets a LangGraph graph act as the voice agent's LLM |
 | Speech-to-text | Deepgram nova-3, interim results on | Fast and accurate on phone audio. Interim results let turn detection start before the caller finishes |
-| LLM | Anthropic LLM via the LiveKit plugin (model set in `agent.py`) | Reliable tool use and natural, concise conversation at voice-friendly latency |
 | Text-to-speech | Cartesia sonic-2 | Low time to first audio, with a natural voice |
 | Voice activity detection | Silero VAD | Small local model that detects when someone starts and stops speaking |
 | Turn detection | LiveKit English turn detector | Judges whether the caller has actually finished their thought, not just paused |
@@ -48,76 +52,128 @@ All customer and order data is fake and for demo purposes only.
 | Web search fallback | Tavily | Answers general questions the shop's data can't, such as carrier holiday schedules |
 | Browser client | `livekit-client` and Tailwind from a CDN | One HTML file, no build step |
 
-## Architecture
+## Architecture: a LangGraph brain behind a LiveKit voice
+
+There are two layers, and each one only does its own job.
 
 ```mermaid
 flowchart LR
-    caller((Caller)) --> G[Greeter]
-    G -- "order number or phone confirmed" --> S[Order Status]
-    S -- "reschedule / refund / problem" --> R[Resolution]
-    R -- "follow-up status question" --> S
-    R -- "after each action" --> E[send_confirmation_email]
-    G & S & R -. escalate_to_human .-> T[(support_tickets)]
-    S & R --> DB[(shop.db)]
-    G & S & R -. "publish_data (wismo.state)" .-> P[Browser panel]
+    caller((Caller)) -->|speech| STT[Deepgram STT]
+    STT --> VAD[Silero VAD + turn detector]
+    VAD --> AD[LLMAdapter]
+    AD --> G[["LangGraph graph<br/>(wismo/)"]]
+    G -->|"streamed text"| TTS[Cartesia TTS]
+    TTS -->|speech| caller
+    G -. "wismo.state data messages" .-> UI[Browser panel]
+    G --> DB[(shop.db)]
+    G --> M[Gmail SMTP]
 ```
 
-The three agents in `support.py` are LiveKit `Agent` subclasses, each with its own instructions and `@function_tool` methods. A hand-off happens when a tool returns the next agent, for example `return ResolutionAgent(chat_ctx=..., userdata=...)`.
+- **Voice layer ([agent.py](agent.py)):** LiveKit handles audio, interruptions and turn-taking. It knows nothing about orders.
+- **Brain ([wismo/](wismo/)):** a LangGraph `StateGraph` decides who is talking, which tools to call and when to hand off. It knows nothing about audio.
 
-| Agent | Job | Tools |
+`LLMAdapter` is the only seam. Each time the caller finishes a turn, LiveKit hands the transcript to the graph, and whatever the graph streams back is spoken.
+
+### The graph
+
+<!-- graph:start -->
+```mermaid
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	begin_turn(begin_turn)
+	confirmation_email(confirmation_email)
+	greeter(greeter)
+	greeter_tools(greeter_tools)
+	order_status(order_status)
+	order_status_tools(order_status_tools)
+	resolution(resolution)
+	resolution_tools(resolution_tools)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> begin_turn;
+	begin_turn -.-> confirmation_email;
+	begin_turn -.-> greeter;
+	begin_turn -.-> order_status;
+	begin_turn -.-> resolution;
+	confirmation_email --> resolution;
+	greeter -.-> __end__;
+	greeter -.-> greeter_tools;
+	greeter_tools -.-> greeter;
+	greeter_tools -.-> order_status;
+	order_status -.-> __end__;
+	order_status -.-> order_status_tools;
+	order_status_tools -.-> order_status;
+	order_status_tools -.-> resolution;
+	resolution -.-> __end__;
+	resolution -.-> resolution_tools;
+	resolution_tools -.-> confirmation_email;
+	resolution_tools -.-> order_status;
+	resolution_tools -.-> resolution;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
+```
+<!-- graph:end -->
+
+Regenerate it with `python scripts/draw_graph.py`. A test fails if the diagram is out of date.
+
+| Node | Kind | Job |
 |---|---|---|
-| **Greeter** | Greets the caller and collects an order number or phone number. It reads the number back to confirm, saves it to userdata, then hands off | `transfer_to_order_status`, `search_web` |
-| **Order Status** | Verifies the caller, then explains status, delays and tracking in plain speech | `lookup_order_by_id`, `lookup_orders_by_phone`, `verify_customer`, `get_tracking_events`, `transfer_to_resolution` |
-| **Resolution** | Confirms out loud, then acts and emails a confirmation | `reschedule_delivery`, `request_refund`, `create_ticket`, `send_confirmation_email`, `transfer_back_to_order_status` |
+| `begin_turn` | code, no LLM | Tidies the checkpoint against the transcript LiveKit re-sent, and picks up any action an interruption left half-recorded |
+| `greeter` | LLM | Greets, collects an order or phone number, reads it back, hands off |
+| `order_status` | LLM | Verifies the caller, explains the order and why it's late |
+| `resolution` | LLM | Confirms out loud, then reschedules, refunds, opens a ticket or escalates |
+| `*_tools` | `ToolNode` | One per agent, so an agent can only reach its own tools |
+| `confirmation_email` | code, no LLM | Emails the caller after any action, built only from what was actually done |
 
-All three agents also have `escalate_to_human`, which opens an escalation ticket and tells the caller a specialist will call back.
+Hand-offs are tools that return a `Command`: `transfer_to_order_status` sets `active_agent` and the next agent speaks in the same turn, so there's no dead air waiting for the caller.
 
-### Shared context across hand-offs
+| Agent | Tools |
+|---|---|
+| **Greeter** | `transfer_to_order_status`, `search_web`, `escalate_to_human` |
+| **Order Status** | `lookup_order_by_id`, `lookup_orders_by_phone`, `verify_customer`, `get_tracking_events`, `transfer_to_resolution`, `escalate_to_human` |
+| **Resolution** | `reschedule_delivery`, `request_refund`, `create_ticket`, `transfer_back_to_order_status`, `escalate_to_human` |
 
-The session holds one `UserData` object (`AgentSession[UserData]`) with these fields:
-- `customer_id`
-- `customer_name`
-- `order_id`
-- `verified`
-- `issue_summary`
-- `current_agent`
-- `last_action`
+### State shared across the call
 
-Every tool reads and writes it. On a hand-off, the next agent gets two things:
-- the conversation so far, without tool calls;
-- a one-line summary of the userdata in its instructions.
-
-So the caller never repeats themselves.
+`CallState` (in [wismo/state.py](wismo/state.py)) is checkpointed by LangGraph and holds the active agent, order, customer, verification status, issue and last action. Every tool reads it and writes changes back in a single `Command`, so a tool's result and its state change commit together. On a hand-off, the next agent gets the conversation so far, a one-line summary of this state, and a one-shot note telling it what to do first.
 
 ### Verification is enforced in code
 
 Nothing about an order is shared until `verify_customer` succeeds with the last four digits of the phone number on the account.
 
-- **Before verification:**
-  - `lookup_order_by_id` only confirms the order exists;
-  - `lookup_orders_by_phone` only returns order numbers.
-- **Tracking and actions:** `get_tracking_events` and every Resolution tool, including `send_confirmation_email`, raise a `ToolError` unless `userdata.verified` is true for that same order. A prompt can't talk its way past this.
-- **Retries:** callers get 3 attempts.
+- **Before verification:** `lookup_order_by_id` only confirms the order exists, and `lookup_orders_by_phone` only returns order numbers.
+- **Tracking and actions:** `get_tracking_events`, `transfer_to_resolution` and every Resolution tool raise a `ToolError` unless the call is verified for that same order. A prompt can't talk its way past this.
+- **Retries:** callers get 3 attempts. The attempt is counted before the database lookup, so interrupting the agent can't hand back a free one.
 - **The one exception:** `escalate_to_human` also works for unverified callers, so someone who fails verification can still reach a person. Their ticket is marked as unverified and no email is sent.
 
-### Live call panel
+### Why `custom` stream mode
 
-On every hand-off, tool call and userdata change, the agent publishes a JSON message with `room.local_participant.publish_data` on the topic `wismo.state`:
+By default the adapter would speak every message any node produces, including tool results. So the agent would read "Transferred. Order ORD-48213 exists…" aloud. Instead the graph runs in `custom` mode: each specialist streams the model's words through `runtime.stream_writer`, and that is the **only** path to the caller's ears. Tool results, notes and routing never reach the speaker.
 
-```json
-{"type": "state", "agent": "Resolution", "verified": true, "customer": "Maya Patel",
- "order_id": "ORD-48213", "status": "delayed", "promised_date": "2026-10-30",
- "notepad": {"current_agent": "Resolution", "order_id": "ORD-48213", "verified": "yes", "...": "..."},
- "log": "Rescheduled delivery to Fri, Oct 30"}
-```
+### Interruptions and consistency
 
-`index.html` renders this as follows:
-- **Active agent:** the active agent is highlighted, with a pulse on each hand-off.
-- **Customer and order:** the customer with a Verified badge, plus the order, status and delivery date.
-- **Activity log:** a running log of tool calls ("Looked up ORD-48213", "Verification passed", "Email sent").
-- **Notepad:** the userdata, as key-value rows.
+LiveKit cancels the graph mid-run when the caller cuts in. Three things keep the call consistent:
 
-Personal details only reach the screen after verification, the same rule the voice follows.
+- **Atomic steps.** LangGraph applies a step's results together, so a hand-off is either fully applied or not at all.
+- **Idempotent side effects.** A ticket or email runs as its own task, shielded from the interruption, and is keyed per action. If the caller cuts in during a refund and the model asks again, it gets the same ticket back instead of a second one.
+- **Reconciliation.** The next `begin_turn` waits for anything still in flight, records what finished, and removes tool calls that never got a result.
+
+LiveKit's *preemptive generation* (starting a reply before the caller finishes) is turned off, because a speculative run would execute tools early.
+
+### Model calls per turn
+
+| Turn | Calls |
+|---|---|
+| Plain reply | 1 |
+| Verify, status question, hand-off | 2 |
+| Action plus email | 2, plus about 1 s for SMTP |
+
+There's no router or supervisor model call: routing is plain code reading the state. Measured in a real text run, the first words came back in about 1 to 2 seconds per model call.
 
 ## How natural turn-taking works
 
@@ -133,24 +189,24 @@ The hard part of a voice agent is knowing when the caller has finished talking. 
    - "My order number is 4 8 2 1 3" scores as finished, so the agent replies almost straight away.
 
    This is *semantic* end-of-turn detection: it's based on meaning, not just silence.
-4. Only then does the LLM reply, and Cartesia starts speaking from the first sentence while the rest is still being generated.
+4. Only then does the graph run, and Cartesia starts speaking from the first sentence while the rest is still being generated.
 
 **Barge-in (interruptions).**
-- **Stopping:** if VAD hears the caller speak while the agent is talking, LiveKit stops text-to-speech immediately.
-- **Cleaning up history:** it cuts the agent's message at the point it was interrupted, so the conversation history only contains what the caller actually heard.
+- **Stopping:** if VAD hears the caller speak while the agent is talking, LiveKit stops text-to-speech immediately and cancels the graph run.
+- **Cleaning up history:** LiveKit cuts the agent's message at the point it was interrupted, so the history only contains what the caller actually heard.
 - **Carrying on:** the new speech becomes the next turn, so the caller can say "actually, move it to Friday" mid-sentence and the agent adapts.
 
-This all happens in the audio pipeline, configured in `agent.py` with `turn_handling={"turn_detection": EnglishModel(), "interruption": {"enabled": True}}`. It doesn't rely on the prompt asking the model to stop.
+This all happens in the audio pipeline, configured in `agent.py`. It doesn't rely on the prompt asking the model to stop.
 
 ## Email
 
-After a successful reschedule, refund request, ticket or escalation, Resolution calls `send_confirmation_email`.
+After a successful reschedule, refund request, ticket or escalation, the `confirmation_email` node sends the email. It's plain code, not something the model has to remember to call.
 
 **How the email is built (`email_tool.py`):**
-- **Content:** built from what the tool actually did (`userdata.last_action`), not from model-written text.
+- **Content:** built from what the tool actually did (`state["last_action"]`), not from model-written text.
 - **Format:** plain text plus a simple HTML version.
 - **Sending:** goes through `smtp.gmail.com:465` over SSL, in a worker thread, so the conversation never stalls.
-- **Failures:** they're logged and reported back, so the agent can say honestly that the email didn't go through.
+- **Failures:** they're logged and passed to the agent as a note, so it says honestly that the email didn't go through.
 
 **Setup:** add these to `.env`:
 - `GMAIL_ADDRESS`
@@ -162,14 +218,22 @@ After a successful reschedule, refund request, ticket or escalation, Resolution 
 
 | File | Purpose |
 |---|---|
-| `agent.py` | Worker entry point: builds the voice pipeline and starts the Greeter |
-| `support.py` | The three agents, their tools, `UserData`, and panel messages |
-| `db.py` | SQLite schema, queries and actions (plain sqlite3, no LiveKit) |
-| `seed.py` | Rebuilds `shop.db` with 10 fake customers and 10 orders |
+| `agent.py` | LiveKit voice layer: STT, TTS, VAD, turn detection, and the `LLMAdapter` around the graph |
+| `wismo/graph.py` | The LangGraph graph: nodes, routing, `begin_turn` reconciliation |
+| `wismo/tools.py` | All tools, the verification gate, and idempotent side effects |
+| `wismo/state.py` | `CallState` (checkpointed) and `CallContext` (per-call runtime) |
+| `wismo/prompts.py` | Voice rules, per-agent roles, greeting |
+| `wismo/panel.py` | Publishes call state to the browser panel |
+| `wismo/facts.py` | Turns database rows into speakable text |
+| `db.py`, `seed.py` | SQLite schema, queries, and 10 fake customers and orders |
 | `email_tool.py` | Builds and sends confirmation emails |
 | `token_server.py` | FastAPI `GET /token` for the browser |
 | `index.html` | Browser client: voice, live transcript, call panel |
-| `tests/test_tools.py` | Pytest tests: database tools, the verification gate, and email with mocked SMTP |
+| `tests/` | Database, gate, email and graph tests (scripted fake model, no network) |
+| `scripts/draw_graph.py` | Regenerates the graph diagram |
+| `scripts/text_call.py` | A real end-to-end call as text, using the real model |
+
+The previous version, built on LiveKit's own hand-off mechanism instead of LangGraph, is in git history at commit `2b1b370`.
 
 ## Setup and run
 
@@ -189,7 +253,17 @@ uvicorn token_server:app --port 8000      # terminal 2
 open -a "Google Chrome" index.html        # terminal 3
 ```
 
-Run the tests with `pytest -q`. They use a temporary database and a fake SMTP server, so no real email is sent.
+## Testing
+
+```bash
+pytest -q                       # all tests; no network, no real email
+python scripts/text_call.py     # a real call as text through the real model (needs your API key)
+python scripts/draw_graph.py    # regenerate the diagram after changing the graph
+```
+
+The graph tests drive the real `LLMAdapter` with a scripted fake model, so routing, hand-offs, the gate, persistence and barge-in are all tested without any API.
+
+Optionally, set `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` in `.env` to see every graph step as a trace.
 
 ## Test orders
 

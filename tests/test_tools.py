@@ -1,13 +1,13 @@
 import asyncio
 import smtplib
 import sys
-import types
 from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import db  # noqa: E402
 import email_tool  # noqa: E402
@@ -154,38 +154,40 @@ def test_speakable_date(offset, expected):
     assert db.speakable_date((TODAY + timedelta(days=offset)).isoformat(), today=TODAY) == expected
 
 
-# --- Verification gate in the agent tools --------------------------------------
+# --- Verification gate in the graph tools --------------------------------------
 
 
 @pytest.fixture
-def agents(tmp_path, monkeypatch):
-    """Agent tools pointed at a fresh seeded DB, with a stand-in RunContext."""
+def tools_env(tmp_path, monkeypatch):
+    """The real tools pointed at a fresh seeded DB, run through a real ToolNode."""
     path = str(tmp_path / "shop.db")
     seed.seed(path)
     monkeypatch.setattr(db, "DB_PATH", path)
-    import support
+    from fakes import invoke_tool
 
-    ud = support.UserData(order_id=DELAYED_WEATHER)
-    ctx = types.SimpleNamespace(userdata=ud)
-    return support, ctx, path
+    return invoke_tool, path
 
 
-def test_resolution_tools_refuse_unverified_callers(agents):
-    support, ctx, path = agents
-    from livekit.agents import ToolError
+def run_tool(env, name, args, state=None):
+    invoke_tool, _ = env
+    return asyncio.run(invoke_tool(name, args, state))
 
-    status, resolution = support.OrderStatusAgent(), support.ResolutionAgent()
+
+def test_resolution_tools_refuse_unverified_callers(tools_env):
+    _, path = tools_env
     future = (date.today() + timedelta(days=3)).isoformat()
+    unverified = {"order_id": DELAYED_WEATHER, "verified": False}
     calls = [
-        resolution.reschedule_delivery(ctx, DELAYED_WEATHER, future),
-        resolution.request_refund(ctx, DELAYED_WEATHER, "late"),
-        resolution.create_ticket(ctx, DELAYED_WEATHER, "other", "note"),
-        resolution.send_confirmation_email(ctx),
-        status.get_tracking_events(ctx, DELAYED_WEATHER),
+        ("reschedule_delivery", {"order_id": DELAYED_WEATHER, "new_date": future}),
+        ("request_refund", {"order_id": DELAYED_WEATHER, "reason": "late"}),
+        ("create_ticket", {"order_id": DELAYED_WEATHER, "type": "other", "notes": "note"}),
+        ("get_tracking_events", {"order_id": DELAYED_WEATHER}),
+        ("transfer_to_resolution", {"issue_summary": "wants a refund"}),
     ]
-    for call in calls:
-        with pytest.raises(ToolError, match="isn't verified"):
-            asyncio.run(call)
+    for name, args in calls:
+        message, state = run_tool(tools_env, name, args, unverified)
+        assert message.status == "error" and "isn't verified" in message.content, name
+        assert state.get("active_agent") != "resolution" and not state.get("last_action"), name
 
     c = db.connect(path)
     assert db.get_order(c, DELAYED_WEATHER)["promised_date"] < date.today().isoformat()  # unchanged
@@ -193,34 +195,53 @@ def test_resolution_tools_refuse_unverified_callers(agents):
     c.close()
 
 
-def test_lookup_hides_details_until_verified(agents):
-    support, ctx, _ = agents
-    status = support.OrderStatusAgent()
-    before = asyncio.run(status.lookup_order_by_id(ctx, DELAYED_WEATHER))
-    assert "espresso" not in before.lower() and "verify" in before.lower()
+def test_lookup_hides_details_until_verified(tools_env):
+    state = {"order_id": DELAYED_WEATHER}
+    message, after = run_tool(tools_env, "lookup_order_by_id", {"order_id": DELAYED_WEATHER}, state)
+    assert "espresso" not in message.content.lower() and "verify" in message.content.lower()
 
-    failed = asyncio.run(status.verify_customer(ctx, DELAYED_WEATHER, "9999"))
-    assert "don't match" in failed and not ctx.userdata.verified
+    failed, after = run_tool(
+        tools_env, "verify_customer", {"order_id": DELAYED_WEATHER, "last_four_phone_digits": "9999"}, state
+    )
+    assert "don't match" in failed.content and not after.get("verified") and after["verify_attempts"] == 1
 
-    passed = asyncio.run(status.verify_customer(ctx, DELAYED_WEATHER, "0142"))
-    assert ctx.userdata.verified and "espresso" in passed.lower()
+    passed, after = run_tool(
+        tools_env, "verify_customer", {"order_id": DELAYED_WEATHER, "last_four_phone_digits": "0142"}, state
+    )
+    assert after["verified"] and after["customer_name"] == "Maya Patel" and "espresso" in passed.content.lower()
 
 
-def test_verified_caller_can_reschedule_and_other_orders_stay_locked(agents):
-    support, ctx, _ = agents
-    from livekit.agents import ToolError
-
-    asyncio.run(support.OrderStatusAgent().verify_customer(ctx, DELAYED_WEATHER, "0142"))
-    resolution = support.ResolutionAgent()
+def test_verified_caller_can_reschedule_and_other_orders_stay_locked(tools_env):
+    verified = {"order_id": DELAYED_WEATHER, "verified": True, "customer_id": 1, "customer_name": "Maya Patel"}
     future = (date.today() + timedelta(days=3)).isoformat()
 
-    with pytest.raises(ToolError, match="Only the verified order"):
-        asyncio.run(resolution.reschedule_delivery(ctx, "ORD-19376", future))  # Maya's other order
+    message, _ = run_tool(tools_env, "reschedule_delivery", {"order_id": "ORD-19376", "new_date": future}, verified)
+    assert message.status == "error" and "Only the verified order" in message.content  # Maya's other order
 
-    result = asyncio.run(resolution.reschedule_delivery(ctx, DELAYED_WEATHER, future))
-    assert "Done" in result
-    assert ctx.userdata.last_action["action"] == "reschedule"
-    assert ctx.userdata.promised_date == future
+    message, after = run_tool(tools_env, "reschedule_delivery", {"order_id": DELAYED_WEATHER, "new_date": future}, verified)
+    assert "Done" in message.content
+    assert after["last_action"]["action"] == "reschedule" and after["promised_date"] == future
+    assert after["email_pending"] is True
+
+
+def test_escalation_is_allowed_for_unverified_callers(tools_env):
+    message, after = run_tool(
+        tools_env, "escalate_to_human", {"reason": "wants a person"}, {"order_id": DELAYED_WEATHER, "verified": False}
+    )
+    assert "Escalation ticket" in message.content
+    assert not after.get("last_action")  # nothing attached to the order, and no email owed
+    c = db.connect(tools_env[1])
+    row = c.execute("SELECT order_id, notes FROM support_tickets WHERE type = 'escalation'").fetchone()
+    assert row["order_id"] is None and "unverified caller" in row["notes"]
+    c.close()
+
+
+def test_verification_attempts_are_capped(tools_env):
+    state = {"order_id": DELAYED_WEATHER, "verify_attempts": 3}
+    message, after = run_tool(
+        tools_env, "verify_customer", {"order_id": DELAYED_WEATHER, "last_four_phone_digits": "0142"}, state
+    )
+    assert "Too many failed attempts" in message.content and not after.get("verified")
 
 
 # --- Email ---------------------------------------------------------------------
