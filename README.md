@@ -73,6 +73,41 @@ open index.html                           # terminal 3: or just open the file in
 
 Click **Start conversation**, allow the microphone, and try an order from the [test orders](#test-orders) below.
 
+## Animated front end (`web/`)
+
+The `web/` folder holds a second browser client: a React and TypeScript app with an animated anime-style host, live captions and the same call panel. It talks to the same backend, so nothing on the Python side changes. The original `index.html` still works.
+
+**You also need:** Node.js 20 or newer.
+
+**Run all three together, in three terminals** (activate the virtual environment in the first two):
+
+```bash
+python agent.py dev                       # terminal 1: the voice agent
+uvicorn token_server:app --port 8000      # terminal 2: the token server
+cd web && npm install && npm run dev      # terminal 3: the front end, at http://localhost:5173
+```
+
+Open http://localhost:5173 and click **Start call**. The Vite dev server proxies `/token` to the token server on port 8000, so there's no CORS or URL to configure.
+
+| Command (in `web/`) | What it does |
+|---|---|
+| `npm run dev` | Dev server with hot reload on port 5173 |
+| `npm run typecheck` | TypeScript in strict mode, no output files |
+| `npm run build` | Type check, then a production build in `web/dist` |
+
+**How the avatar is driven.**
+- **Real signals:** it reacts to three signals the backend already sends: the agent's `lk.agent.state` attribute (listening, thinking, speaking), your microphone level, and the agent's audio level.
+- **Read-only levels:** both audio levels come from Web Audio `AnalyserNode`s that only read the tracks. The agent's voice still plays through LiveKit's normal `<audio>` element, so the analysers add no delay.
+- **One loop:** a single `requestAnimationFrame` loop moves the face. It writes SVG `transform` and `opacity` directly and never touches React state, and it pauses while the tab is hidden.
+- **Reduced motion:** with `prefers-reduced-motion` set, the avatar stops swaying and its mouth uses fewer shapes.
+
+**Debug overlay.**
+- Press **D** to show fps, the time spent in the animation loop, and the last reply gap. The reply gap is the time from your last sound to the agent's first audio.
+- To measure the same gap on the original `index.html`, paste [web/tools/reply-gap-snippet.js](web/tools/reply-gap-snippet.js) into the browser console once the call has connected.
+- Both pages log one `reply gap … ms` line per reply, so you can compare them directly.
+
+**Previewing poses without a call:** in dev, add `?mood=listening`, `?mood=thinking` or `?mood=interrupted` to the URL.
+
 ## Test orders
 
 The data is the same on every seed, and dates are relative to the day you run `seed.py`. Re-run it to undo reschedules and tickets.
@@ -299,6 +334,7 @@ After a successful reschedule, refund request, ticket or escalation, the `confir
 | `email_tool.py` | Builds and sends confirmation emails |
 | `token_server.py` | FastAPI `GET /token` for the browser |
 | `index.html` | Browser client: voice, live transcript, call panel |
+| `web/` | Animated front end: React, TypeScript, Vite, Tailwind, SVG avatar, captions, call panel |
 | `docs/` | Graph diagram source, the demo GIF and a screenshot |
 | `tests/` | Database, gate, email and graph tests (scripted fake model, no network) |
 | `scripts/draw_graph.py` | Regenerates the graph diagram |
