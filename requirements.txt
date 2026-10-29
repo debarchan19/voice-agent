@@ -1,5 +1,12 @@
-# Agent runtime + plugins (all pinned to the same 1.8.x line so they stay compatible)
-livekit-agents[anthropic,deepgram,cartesia,silero,turn-detector]~=1.8.8
+# Voice pipeline: LiveKit Agents + Deepgram (STT), Cartesia (TTS), Silero (VAD), turn detector
+# and the LangGraph adapter. All LiveKit packages share one version so they stay compatible.
+livekit-agents[langchain,deepgram,cartesia,silero,turn-detector]~=1.8.9
+livekit-plugins-langchain~=1.8.9
+
+# The agent brain: a LangGraph graph calling the LLM through LangChain
+langgraph~=1.2.18
+langchain-anthropic~=1.7.6
+langchain-core~=1.7.0
 
 # Token server
 livekit-api~=1.2
