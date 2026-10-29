@@ -83,7 +83,11 @@ def system_prompt(agent: AgentName, state: dict) -> str:
         prompt += "\n\nYou have just taken over the call, or something just happened. " + " ".join(state["notes"])
     said = spoken_this_turn(state["messages"])
     if said:
-        prompt += f"\n\nYou already said this to the caller this turn, so don't repeat it: '{said}'"
+        prompt += (
+            f"\n\nYou already said this to the caller this turn: '{said}'. Carry straight on from it, with no "
+            'new opener like "Sure" or "Great", and never repeat a question you already asked. '
+            "If that question is still waiting for an answer, say nothing more."
+        )
     return prompt
 
 
