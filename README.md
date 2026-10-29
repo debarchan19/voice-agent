@@ -1,8 +1,8 @@
-# Where Is My Order
+# Delivery Desk
 
 **A multi-agent voice assistant for late and missing deliveries, with a LangGraph brain and a LiveKit voice.** Call in, get verified, hear what happened to your package in plain speech, reschedule or request a refund, and get a confirmation email, all in one natural conversation you can interrupt at any time.
 
-![Where Is My Order: voice call with live agent panel](docs/screenshot.png)
+![Delivery Desk: voice call with live agent panel](docs/screenshot.png)
 
 *The browser client mid-call (sample session): the orb shows the call state, and the side panel shows the active agent, the verified customer, every tool call and the shared call data.*
 
