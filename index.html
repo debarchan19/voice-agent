@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Voice Agent</title>
+  <title>Delivery Desk</title>
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script src="https://unpkg.com/livekit-client@2.22.3/dist/livekit-client.umd.js"></script>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
       background:
-        radial-gradient(900px 500px at 50% -10%, rgba(59, 130, 246, 0.14), transparent 60%),
-        radial-gradient(700px 400px at 90% 100%, rgba(139, 92, 246, 0.10), transparent 60%),
-        #07090d;
+        radial-gradient(900px 520px at 50% -10%, rgba(96, 165, 250, 0.35), transparent 62%),
+        radial-gradient(700px 420px at 90% 100%, rgba(167, 139, 250, 0.28), transparent 62%),
+        #1b2438;
     }
 
     /* Orb: one element, look driven by data-state on <body> */
@@ -22,8 +22,8 @@
       transition: background 0.4s, box-shadow 0.4s, opacity 0.4s;
     }
     .orb {
-      background: radial-gradient(circle at 32% 28%, #3a4150, #161a22 70%);
-      box-shadow: inset 0 1px 1px rgba(255,255,255,0.12), 0 20px 60px -20px rgba(0,0,0,0.8);
+      background: radial-gradient(circle at 32% 28%, #8b97b0, #374259 70%);
+      box-shadow: inset 0 1px 1px rgba(255,255,255,0.12), 0 20px 60px -20px rgba(0,0,0,0.5);
     }
     .ring { border: 1px solid rgba(96, 165, 250, 0.5); opacity: 0; }
 
@@ -61,9 +61,20 @@
     @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
     /* Call details panel */
-    .step { transition: color 0.3s, background 0.3s, border-color 0.3s; }
-    .step[data-active="true"] { color: #fff; border-color: rgba(96, 165, 250, 0.6); background: rgba(59, 130, 246, 0.18); }
-    .step[data-done="true"] { color: #a3a3a3; }
+    .step { transition: color 0.3s, background 0.3s, border-color 0.3s, box-shadow 0.3s, opacity 0.3s;
+            border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.05); color: #cbd5e1; }
+    .step .num { background: rgba(255,255,255,0.14); color: #e2e8f0; transition: background 0.3s, color 0.3s; }
+    .step .live { display: none; }
+    .step[data-active="true"] {
+      color: #fff; border-color: #93c5fd;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      box-shadow: 0 0 0 1px rgba(147,197,253,0.6), 0 8px 28px -6px rgba(96,165,250,0.85);
+    }
+    .step[data-active="true"] .num { background: #fff; color: #1d4ed8; }
+    .step[data-active="true"] .live { display: inline-flex; }
+    .step[data-active="true"] .role { color: #dbeafe; }
+    .step[data-done="true"] { color: #bbf7d0; border-color: rgba(52,211,153,0.55); background: rgba(16,185,129,0.12); }
+    .step[data-done="true"] .num { background: #34d399; color: #064e3b; }
     .step.handoff { animation: handoff 1.6s ease-out; }
     @keyframes handoff {
       0%   { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.7); transform: scale(1.03); }
@@ -82,11 +93,11 @@
   <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center px-5 py-10 sm:py-14">
 
     <header class="text-center">
-      <h1 class="text-2xl font-semibold tracking-tight sm:text-3xl">Where Is My Order</h1>
-      <p class="mt-2 text-sm text-neutral-400">Voice support for late and missing deliveries. Just start talking.</p>
+      <h1 class="text-2xl font-semibold tracking-tight sm:text-3xl">Delivery Desk</h1>
+      <p class="mt-2 text-sm text-neutral-300">Voice support for late and missing deliveries. Just start talking.</p>
     </header>
 
-    <div class="mt-4 grid w-full flex-1 gap-8 lg:grid-cols-[minmax(0,1fr)_19rem]">
+    <div class="mt-4 grid w-full flex-1 gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
     <div class="mx-auto flex w-full max-w-xl flex-col">
     <section class="flex flex-1 flex-col items-center justify-center gap-7 py-10 sm:py-12">
       <div class="orb-wrap" aria-hidden="true">
@@ -95,7 +106,7 @@
         <div class="orb"></div>
       </div>
 
-      <div class="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 backdrop-blur"
+      <div class="flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-1.5 backdrop-blur"
            role="status" aria-live="polite">
         <span class="dot h-2 w-2 rounded-full"></span>
         <span id="status" class="text-xs font-medium uppercase tracking-[0.18em] text-neutral-300">Disconnected</span>
@@ -112,56 +123,83 @@
 
     <section class="w-full">
       <div class="mb-2 flex items-center justify-between px-1">
-        <h2 class="text-xs font-medium uppercase tracking-[0.18em] text-neutral-500">Transcript</h2>
+        <h2 class="text-xs font-medium uppercase tracking-[0.18em] text-neutral-300">Transcript</h2>
       </div>
       <div id="transcript"
         style="scroll-behavior: smooth; overflow-anchor: none"
-        class="flex h-72 flex-col gap-3 overflow-y-auto rounded-2xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur sm:p-5">
+        class="flex h-72 flex-col gap-3 overflow-y-auto rounded-2xl border border-white/20 bg-white/[0.08] p-4 backdrop-blur sm:p-5">
       </div>
     </section>
     </div>
 
     <aside class="mx-auto w-full max-w-xl lg:mt-12">
-      <h2 class="mb-2 px-1 text-xs font-medium uppercase tracking-[0.18em] text-neutral-500">Call details</h2>
-      <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur sm:p-5">
-        <p class="text-[10px] font-medium uppercase tracking-widest text-neutral-500">Active agent</p>
-        <ol id="agent-steps" class="mt-2 flex flex-col gap-1.5 text-sm text-neutral-500">
-          <li class="step rounded-lg border border-transparent px-3 py-2" data-agent="Greeter">Greeter</li>
-          <li class="step rounded-lg border border-transparent px-3 py-2" data-agent="Order Status">Order Status</li>
-          <li class="step rounded-lg border border-transparent px-3 py-2" data-agent="Resolution">Resolution</li>
+      <h2 class="mb-2 px-1 text-xs font-medium uppercase tracking-[0.18em] text-neutral-300">Call details</h2>
+      <div class="rounded-2xl border border-white/20 bg-white/[0.08] p-4 backdrop-blur sm:p-5">
+        <p class="text-[10px] font-medium uppercase tracking-widest text-neutral-300">Active agent</p>
+        <ol id="agent-steps" class="mt-3 flex flex-col gap-2">
+          <li class="step flex items-center gap-3 rounded-xl px-3 py-3" data-agent="Greeter">
+            <span class="num flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold">1</span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm font-semibold">Greeter</span>
+              <span class="role block text-xs text-slate-300">Takes your order or phone number</span>
+            </span>
+            <span class="live items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+              <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-white"></span>Live
+            </span>
+          </li>
+          <li class="step flex items-center gap-3 rounded-xl px-3 py-3" data-agent="Order Status">
+            <span class="num flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold">2</span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm font-semibold">Order Status</span>
+              <span class="role block text-xs text-slate-300">Verifies you, explains the status</span>
+            </span>
+            <span class="live items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+              <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-white"></span>Live
+            </span>
+          </li>
+          <li class="step flex items-center gap-3 rounded-xl px-3 py-3" data-agent="Resolution">
+            <span class="num flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold">3</span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm font-semibold">Resolution</span>
+              <span class="role block text-xs text-slate-300">Reschedules, refunds, opens tickets</span>
+            </span>
+            <span class="live items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+              <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-white"></span>Live
+            </span>
+          </li>
         </ol>
 
-        <dl class="mt-5 flex flex-col gap-1 border-t border-white/10 pt-4 text-sm">
+        <dl class="mt-5 flex flex-col gap-1 border-t border-white/20 pt-4 text-sm">
           <div id="row-customer" class="flex items-center justify-between gap-3 rounded-lg px-2 py-2">
-            <dt class="text-neutral-500">Customer</dt>
+            <dt class="text-neutral-300">Customer</dt>
             <dd class="flex items-center gap-2 text-right">
-              <span id="customer" class="text-neutral-400">Not verified</span>
+              <span id="customer" class="text-neutral-300">Not verified</span>
               <span id="verified-badge" class="hidden rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300 ring-1 ring-inset ring-emerald-400/30">Verified</span>
             </dd>
           </div>
           <div id="row-order" class="flex items-center justify-between gap-3 rounded-lg px-2 py-2">
-            <dt class="text-neutral-500">Order</dt>
+            <dt class="text-neutral-300">Order</dt>
             <dd id="order-id" class="font-mono text-neutral-100">&mdash;</dd>
           </div>
           <div id="row-status" class="flex items-center justify-between gap-3 rounded-lg px-2 py-2">
-            <dt class="text-neutral-500">Status</dt>
-            <dd><span id="order-status" class="text-neutral-500">&mdash;</span></dd>
+            <dt class="text-neutral-300">Status</dt>
+            <dd><span id="order-status" class="text-neutral-300">&mdash;</span></dd>
           </div>
           <div id="row-delivery" class="flex items-center justify-between gap-3 rounded-lg px-2 py-2">
-            <dt class="text-neutral-500">Delivery</dt>
+            <dt class="text-neutral-300">Delivery</dt>
             <dd id="delivery" class="text-neutral-100">&mdash;</dd>
           </div>
         </dl>
       </div>
 
-      <h2 class="mb-2 mt-6 px-1 text-xs font-medium uppercase tracking-[0.18em] text-neutral-500">Activity</h2>
+      <h2 class="mb-2 mt-6 px-1 text-xs font-medium uppercase tracking-[0.18em] text-neutral-300">Activity</h2>
       <ol id="activity" style="scroll-behavior: smooth"
-        class="flex h-52 flex-col gap-1.5 overflow-y-auto rounded-2xl border border-white/10 bg-white/[0.03] p-3 font-mono text-xs backdrop-blur">
+        class="flex h-52 flex-col gap-1.5 overflow-y-auto rounded-2xl border border-white/20 bg-white/[0.08] p-3 font-mono text-xs backdrop-blur">
       </ol>
 
-      <h2 class="mb-2 mt-6 px-1 text-xs font-medium uppercase tracking-[0.18em] text-neutral-500">Notepad</h2>
+      <h2 class="mb-2 mt-6 px-1 text-xs font-medium uppercase tracking-[0.18em] text-neutral-300">Notepad</h2>
       <dl id="notepad"
-        class="flex flex-col gap-0.5 rounded-2xl border border-white/10 bg-white/[0.03] p-3 font-mono text-xs backdrop-blur">
+        class="flex flex-col gap-0.5 rounded-2xl border border-white/20 bg-white/[0.08] p-3 font-mono text-xs backdrop-blur">
       </dl>
     </aside>
     </div>
@@ -232,7 +270,7 @@
 
     function emptyLog() {
       const li = document.createElement("li");
-      li.className = "m-auto text-neutral-600";
+      li.className = "m-auto text-neutral-400";
       li.textContent = "Tool calls will appear here.";
       return li;
     }
@@ -243,7 +281,7 @@
       li.dataset.line = "";
       li.className = "bubble-in flex gap-2 text-neutral-300";
       const time = document.createElement("span");
-      time.className = "shrink-0 text-neutral-600";
+      time.className = "shrink-0 text-neutral-400";
       time.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
       const msg = document.createElement("span");
       msg.textContent = text;
@@ -263,7 +301,7 @@
           const row = document.createElement("div");
           row.className = "flex justify-between gap-3 rounded-md px-2 py-1";
           const keyEl = document.createElement("dt");
-          keyEl.className = "shrink-0 text-neutral-500";
+          keyEl.className = "shrink-0 text-neutral-300";
           keyEl.textContent = key;
           valueEl = document.createElement("dd");
           valueEl.className = "min-w-0 break-words text-right text-neutral-200";
@@ -296,14 +334,14 @@
       activeAgent = state.agent;
 
       if (setField(customerEl, state.verified ? state.customer : "Not verified", "row-customer")) {
-        customerEl.className = state.verified ? "text-neutral-100" : "text-neutral-400";
+        customerEl.className = state.verified ? "text-neutral-100" : "text-neutral-300";
         verifiedBadge.classList.toggle("hidden", !state.verified);
       }
       setField(orderIdEl, state.order_id || "—", "row-order");
 
       const [label, style] = STATUS_STYLES[state.status] || ["—", ""];
       if (setField(orderStatusEl, label, "row-status")) {
-        orderStatusEl.className = style ? `${BADGE_BASE} ${style}` : "text-neutral-500";
+        orderStatusEl.className = style ? `${BADGE_BASE} ${style}` : "text-neutral-300";
       }
       setField(deliveryEl, state.promised_date ? formatDate(state.promised_date) : "—", "row-delivery");
 
@@ -315,14 +353,14 @@
       steps.forEach((step) => { step.dataset.active = "false"; step.dataset.done = "false"; });
       activeAgent = null;
       customerEl.textContent = "Not verified";
-      customerEl.className = "text-neutral-400";
+      customerEl.className = "text-neutral-300";
       verifiedBadge.classList.add("hidden");
       activityEl.replaceChildren(emptyLog());
       notepadEl.replaceChildren();
       notepadRows.clear();
       orderIdEl.textContent = "—";
       orderStatusEl.textContent = "—";
-      orderStatusEl.className = "text-neutral-500";
+      orderStatusEl.className = "text-neutral-300";
       deliveryEl.textContent = "—";
     }
 
@@ -351,14 +389,14 @@
       row.className = `bubble-in flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`;
 
       const who = document.createElement("span");
-      who.className = "px-1 text-[10px] font-medium uppercase tracking-widest text-neutral-500";
+      who.className = "px-1 text-[10px] font-medium uppercase tracking-widest text-neutral-300";
       who.textContent = isUser ? "You" : "Assistant";
 
       const bubble = document.createElement("div");
       bubble.className = `max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
         isUser
-          ? "rounded-br-md bg-blue-600 text-white"
-          : "rounded-bl-md border border-white/10 bg-white/10 text-neutral-100"
+          ? "rounded-br-md bg-blue-500 text-white"
+          : "rounded-bl-md border border-white/20 bg-white/20 text-white"
       }`;
 
       row.append(who, bubble);
@@ -390,7 +428,7 @@
 
     function emptyState() {
       const p = document.createElement("p");
-      p.className = "m-auto text-center text-sm text-neutral-500";
+      p.className = "m-auto text-center text-sm text-neutral-300";
       p.textContent = "Your conversation will appear here.";
       return p;
     }

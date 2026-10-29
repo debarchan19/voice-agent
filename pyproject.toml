@@ -1,11 +1,15 @@
 [project]
 name = "voice-agent"
 version = "0.1.0"
-description = "Multi-agent voice support for late and missing deliveries, built on LiveKit Agents"
+description = "Multi-agent voice support for late and missing deliveries, built on LiveKit Agents and LangGraph"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "livekit-agents[anthropic,deepgram,cartesia,silero,turn-detector]~=1.8.8",
+    "livekit-agents[langchain,deepgram,cartesia,silero,turn-detector]~=1.8.9",
+    "livekit-plugins-langchain~=1.8.9",
+    "langgraph~=1.2.18",
+    "langchain-anthropic~=1.7.6",
+    "langchain-core~=1.7.0",
     "livekit-api~=1.2",
     "fastapi~=0.159",
     "uvicorn[standard]~=0.54",

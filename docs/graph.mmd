@@ -1,0 +1,38 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	begin_turn(begin_turn)
+	confirmation_email(confirmation_email)
+	greeter(greeter)
+	greeter_tools(greeter_tools)
+	order_status(order_status)
+	order_status_tools(order_status_tools)
+	resolution(resolution)
+	resolution_tools(resolution_tools)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> begin_turn;
+	begin_turn -.-> confirmation_email;
+	begin_turn -.-> greeter;
+	begin_turn -.-> order_status;
+	begin_turn -.-> resolution;
+	confirmation_email --> resolution;
+	greeter -.-> __end__;
+	greeter -.-> greeter_tools;
+	greeter_tools -.-> greeter;
+	greeter_tools -.-> order_status;
+	order_status -.-> __end__;
+	order_status -.-> order_status_tools;
+	order_status_tools -.-> order_status;
+	order_status_tools -.-> resolution;
+	resolution -.-> __end__;
+	resolution -.-> resolution_tools;
+	resolution_tools -.-> confirmation_email;
+	resolution_tools -.-> order_status;
+	resolution_tools -.-> resolution;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
