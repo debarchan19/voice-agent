@@ -1,0 +1,223 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #0b0f1c;
+  color-scheme: dark;
+}
+
+/* Keep the whole stage 16:9 inside the window on desktop. */
+@media (min-width: 1024px) {
+  .stage {
+    max-width: calc((100dvh - 2rem) * 16 / 9);
+    max-height: calc(100dvh - 2rem);
+  }
+}
+
+/* Static background glow behind the avatar. Never animated. */
+.glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(42% 46% at 50% 44%, rgba(94, 234, 212, 0.16), transparent 70%),
+    radial-gradient(60% 50% at 50% 30%, rgba(99, 102, 241, 0.22), transparent 75%);
+}
+
+.card {
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ---------- Avatar mood poses: CSS transitions on transform and opacity only ---------- */
+
+.avatar .av-mood,
+.avatar .av-eye,
+.avatar .av-glance,
+.avatar .av-dots {
+  transition:
+    transform 260ms cubic-bezier(0.3, 0.7, 0.4, 1),
+    opacity 220ms ease;
+}
+.avatar .av-head {
+  transform-box: view-box;
+  transform-origin: 200px 300px;
+}
+.avatar .av-eye,
+.avatar .av-brow-l,
+.avatar .av-brow-r {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Listening: eyes a little wider, head tilted toward the caller. */
+.avatar[data-mood="listening"] .av-head {
+  transform: rotate(-4deg) translateY(2px);
+}
+.avatar[data-mood="listening"] .av-eye {
+  transform: scale(1.04, 1.08);
+}
+.avatar[data-mood="listening"] .av-brow-l,
+.avatar[data-mood="listening"] .av-brow-r {
+  transform: translateY(-2px);
+}
+
+/* Thinking: glance up and to the side, one brow raised, dots appear. */
+.avatar[data-mood="thinking"] .av-head {
+  transform: rotate(3deg) translateY(-1px);
+}
+.avatar[data-mood="thinking"] .av-glance {
+  transform: translate(6px, -8px);
+}
+.avatar[data-mood="thinking"] .av-brow-r {
+  transform: translateY(-5px) rotate(4deg);
+}
+
+/* Interrupted: a quick start, then the controller switches to listening. */
+.avatar[data-mood="interrupted"] .av-mood,
+.avatar[data-mood="interrupted"] .av-eye {
+  transition-duration: 120ms;
+}
+.avatar[data-mood="interrupted"] .av-head {
+  transform: rotate(2deg) translateY(-6px);
+}
+.avatar[data-mood="interrupted"] .av-eye {
+  transform: scale(1.08, 1.16);
+}
+.avatar[data-mood="interrupted"] .av-brow-l,
+.avatar[data-mood="interrupted"] .av-brow-r {
+  transform: translateY(-6px);
+}
+
+.avatar .av-dots {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.avatar[data-mood="thinking"] .av-dots {
+  opacity: 1;
+  transform: none;
+}
+.avatar .av-dot {
+  transform-box: fill-box;
+  animation: dot-bob 1s ease-in-out infinite;
+}
+.avatar .av-dot:nth-of-type(2) {
+  animation-delay: 0.15s;
+}
+.avatar .av-dot:nth-of-type(3) {
+  animation-delay: 0.3s;
+}
+@keyframes dot-bob {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.55;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+/* A short cross-fade between mouth shapes; the loop holds each shape at least 70 ms. */
+.avatar .av-mouth {
+  transition: opacity 60ms linear;
+}
+
+/* ---------- Panel ---------- */
+
+.step {
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
+}
+.step .num {
+  background: rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+}
+.step[data-active="true"] {
+  color: #fff;
+  border-color: #93c5fd;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  box-shadow: 0 8px 24px -8px rgba(96, 165, 250, 0.8);
+}
+.step[data-active="true"] .num {
+  background: #fff;
+  color: #1d4ed8;
+}
+.step[data-active="true"] .role {
+  color: #dbeafe;
+}
+.step[data-done="true"] {
+  color: #bbf7d0;
+  border-color: rgba(52, 211, 153, 0.45);
+  background: rgba(16, 185, 129, 0.1);
+}
+.step[data-done="true"] .num {
+  background: #34d399;
+  color: #064e3b;
+}
+
+/* Change highlight: an overlay that fades out (opacity only). */
+.row,
+.step {
+  position: relative;
+}
+.flash::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(96, 165, 250, 0.25);
+  pointer-events: none;
+  animation: fade-out 1.4s ease-out forwards;
+}
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.rise {
+  animation: rise 0.25s ease-out;
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- Reduced motion: no sway, bob or slide; the loop also calms down ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .avatar .av-mood,
+  .avatar .av-eye,
+  .avatar .av-glance,
+  .avatar .av-dots {
+    transition-duration: 0ms;
+  }
+  .avatar .av-dot,
+  .rise,
+  .animate-pulse {
+    animation: none;
+  }
+  .flash::after {
+    display: none;
+  }
+}
