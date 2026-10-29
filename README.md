@@ -1,10 +1,12 @@
 # Delivery Desk
 
-**A multi-agent voice assistant for late and missing deliveries, with a LangGraph brain and a LiveKit voice.** Call in, get verified, hear what happened to your package in plain speech, reschedule or request a refund, and get a confirmation email, all in one natural conversation you can interrupt at any time.
+**A voice assistant that answers "where is my order?" calls: it verifies the caller, explains the delay, fixes the problem and emails a confirmation.**
 
-![Delivery Desk: voice call with live agent panel](docs/screenshot.png)
+![Delivery Desk: animated walkthrough of a call, from greeting to a rescheduled delivery and a caller interruption](docs/demo.gif)
 
-*The browser client mid-call (sample session): the orb shows the call state, and the side panel shows the active agent, the verified customer, every tool call and the shared call data.*
+*Animated walkthrough of the browser client, replayed from a scripted sample session. The orb shows the call state, and the side panel shows the active agent, the verified customer, every tool call and the shared call data. A caller interrupts the agent mid-sentence about halfway through.*
+
+Built on a LangGraph graph of three specialist agents (Greeter, Order Status, Resolution) with a LiveKit voice, Deepgram speech-to-text and Cartesia text-to-speech. Callers can pause mid-thought and interrupt at any time.
 
 ## Built with
 
@@ -14,7 +16,7 @@
 ![LiveKit](https://img.shields.io/badge/LiveKit-Agents_1.8-000000)
 ![LLM](https://img.shields.io/badge/LLM-tool_calling-D97757)
 ![Deepgram](https://img.shields.io/badge/Deepgram-nova--3-13EF93)
-![Cartesia](https://img.shields.io/badge/Cartesia-sonic--2-6D28D9)
+![Cartesia](https://img.shields.io/badge/Cartesia-sonic--3-6D28D9)
 ![Silero](https://img.shields.io/badge/Silero-VAD-2E7D32)
 ![Tavily](https://img.shields.io/badge/Tavily-Search-0B5FFF)
 ![SQLite](https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white)
@@ -35,6 +37,61 @@
 
 All customer and order data is fake and for demo purposes only.
 
+## Setup and run
+
+**You need:** [uv](https://docs.astral.sh/uv/) (it installs Python 3.11 for you), a browser, and these API keys:
+
+| Key in `.env` | Where to get it | Required |
+|---|---|---|
+| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | A free project at [cloud.livekit.io](https://cloud.livekit.io), under Settings, Keys | Yes |
+| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) | Yes |
+| `DEEPGRAM_API_KEY` | [console.deepgram.com](https://console.deepgram.com) | Yes |
+| `CARTESIA_API_KEY` | [play.cartesia.ai](https://play.cartesia.ai) | Yes |
+| `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD` | A [Google app password](https://myaccount.google.com/apppasswords) | For confirmation emails. Without them the agent tells the caller the email didn't go through. |
+| `TAVILY_API_KEY` | [tavily.com](https://tavily.com) | For web search. Without it the Greeter simply skips search. |
+
+**1. Install, from a fresh clone:**
+
+```bash
+git clone https://github.com/debarchan19/voice-agent.git
+cd voice-agent
+uv venv --python 3.11 --managed-python
+source .venv/bin/activate
+uv pip install -r requirements.txt
+cp .env.example .env            # then fill in your keys
+python agent.py download-files  # one-time: turn detector and VAD models
+python seed.py                  # creates shop.db with 10 customers and 10 orders
+```
+
+**2. Run, in three terminals** (activate the virtual environment in each of the first two):
+
+```bash
+python agent.py dev                       # terminal 1: the voice agent
+uvicorn token_server:app --port 8000      # terminal 2: issues browser tokens
+open index.html                           # terminal 3: or just open the file in your browser
+```
+
+Click **Start conversation**, allow the microphone, and try an order from the [test orders](#test-orders) below.
+
+## Test orders
+
+The data is the same on every seed, and dates are relative to the day you run `seed.py`. Re-run it to undo reschedules and tickets.
+
+| Order ID | Status | Item | Customer | Verify with (last 4) |
+|---|---|---|---|---|
+| ORD-48213 | delayed: weather hold at the Denver hub | Stainless steel espresso machine | Maya Patel | 0142 |
+| ORD-51907 | delayed: carrier backlog | Noise-cancelling headphones | James Carter | 0187 |
+| ORD-36458 | delayed: address issue, apartment number missing | Ergonomic office chair | Sofia Ramirez | 0123 |
+| ORD-72041 | out for delivery | Robot vacuum cleaner | Daniel Kim | 0168 |
+| ORD-19376 | delivered | Cast iron skillet set | Maya Patel | 0142 |
+| ORD-60582 | delivered | Trail running shoes | Aisha Johnson | 0119 |
+| ORD-27719 | cancelled | Adjustable standing desk | Lucas Moreau | 0156 |
+| ORD-83350 | returned | Insulated winter parka | Priya Nair | 0131 |
+| ORD-44926 | processing | Mechanical keyboard | Ethan Brooks | 0174 |
+| ORD-95063 | shipped | Digital air fryer | Hannah Weber | 0109 |
+
+To try the phone-number path, give Maya's full number, **720-555-0142**. It has two orders: ORD-48213 and ORD-19376.
+
 ## Stack
 
 | Part | Choice | Why |
@@ -44,7 +101,7 @@ All customer and order data is fake and for demo purposes only.
 | Realtime voice | LiveKit Agents 1.8 | Handles WebRTC audio, the STT → LLM → TTS pipeline and interruptions |
 | Voice ↔ graph bridge | `livekit-plugins-langchain` | Lets a LangGraph graph act as the voice agent's LLM |
 | Speech-to-text | Deepgram nova-3, interim results on | Fast and accurate on phone audio. Interim results let turn detection start before the caller finishes |
-| Text-to-speech | Cartesia sonic-2 | Low time to first audio, with a natural voice |
+| Text-to-speech | Cartesia sonic-3 | Most natural Cartesia voice, about 0.2s to first audio |
 | Voice activity detection | Silero VAD | Small local model that detects when someone starts and stops speaking |
 | Turn detection | LiveKit English turn detector | Judges whether the caller has actually finished their thought, not just paused |
 | Database | SQLite (`shop.db`) | Nothing to install, and easy to reset with `seed.py` |
@@ -58,15 +115,21 @@ There are two layers, and each one only does its own job.
 
 ```mermaid
 flowchart LR
-    caller((Caller)) -->|speech| STT[Deepgram STT]
-    STT --> VAD[Silero VAD + turn detector]
-    VAD --> AD[LLMAdapter]
-    AD --> G[["LangGraph graph<br/>(wismo/)"]]
-    G -->|"streamed text"| TTS[Cartesia TTS]
-    TTS -->|speech| caller
-    G -. "wismo.state data messages" .-> UI[Browser panel]
-    G --> DB[(shop.db)]
-    G --> M[Gmail SMTP]
+    caller((Caller)) <-->|speech| voice["<b>Voice layer</b><br/>LiveKit<br/>Deepgram STT<br/>Silero VAD + turn detector<br/>Cartesia TTS"]
+    voice <-->|"text"| G
+
+    subgraph brain["LangGraph brain: three agents, one conversation"]
+        direction TB
+        G["<b>Greeter</b>"] -->|"order or phone confirmed"| OS["<b>Order Status</b>"]
+        OS -->|"caller wants a change"| R["<b>Resolution</b>"]
+        R -->|"asks about the order"| OS
+    end
+
+    G --- gt["search_web"] --> web[("Tavily<br/>web search")]
+    OS --- ot["lookup_order_by_id<br/>lookup_orders_by_phone<br/>verify_customer<br/>get_tracking_events"] --> db[("shop.db<br/>SQLite")]
+    R --- rt["reschedule_delivery<br/>request_refund<br/>create_ticket"] --> db
+    R -->|"after any action"| em["confirmation_email<br/>plain code, no LLM"] --> mail["Gmail SMTP"]
+    R -.->|"live state"| ui["Browser panel"]
 ```
 
 - **Voice layer ([agent.py](agent.py)):** LiveKit handles audio, interruptions and turn-taking. It knows nothing about orders.
@@ -186,7 +249,7 @@ The hard part of a voice agent is knowing when the caller has finished talking. 
 2. **Deepgram nova-3** streams *interim* transcripts while the caller is still speaking, so text is ready the moment they stop.
 3. **The turn detector** is a small language model that reads the transcript so far and predicts whether the sentence is complete.
    - "My order number is" scores as unfinished, so the agent keeps waiting, up to a few seconds.
-   - "My order number is 4 8 2 1 3" scores as finished, so the agent replies almost straight away.
+   - "My order number is 4 8 2 1 3" scores as finished, so the agent replies after just 0.3 seconds.
 
    This is *semantic* end-of-turn detection: it's based on meaning, not just silence.
 4. Only then does the graph run, and Cartesia starts speaking from the first sentence while the rest is still being generated.
@@ -214,6 +277,13 @@ After a successful reschedule, refund request, ticket or escalation, the `confir
 
 **Safe testing:** set `DEMO_RECIPIENT_EMAIL` and every email goes to that address instead of the customer's seeded `@example.com` address.
 
+## Keeping secrets out of git
+
+- `.gitignore` excludes `.env`, every `.env.*` file except `.env.example`, a local `config` file and `shop.db`.
+- The only environment file in the repository is [.env.example](.env.example), which holds placeholders, not real keys.
+- I scanned the full git history for the keys used in development and found none. To check a clone yourself: `git ls-files | grep -E '(^|/)\.env$'` should print nothing, and `git log --all -p -S"your-key-value"` should print nothing.
+- If a key ever leaks, rotate it at the provider. Removing it from git history is not enough.
+
 ## Files
 
 | File | Purpose |
@@ -229,29 +299,12 @@ After a successful reschedule, refund request, ticket or escalation, the `confir
 | `email_tool.py` | Builds and sends confirmation emails |
 | `token_server.py` | FastAPI `GET /token` for the browser |
 | `index.html` | Browser client: voice, live transcript, call panel |
+| `docs/` | Graph diagram source, the demo GIF and a screenshot |
 | `tests/` | Database, gate, email and graph tests (scripted fake model, no network) |
 | `scripts/draw_graph.py` | Regenerates the graph diagram |
 | `scripts/text_call.py` | A real end-to-end call as text, using the real model |
 
 The previous version, built on LiveKit's own hand-off mechanism instead of LangGraph, is in git history at commit `2b1b370`.
-
-## Setup and run
-
-```bash
-uv venv --python 3.11 --managed-python
-uv pip install -r requirements.txt
-cp .env.example .env            # fill in your keys
-python agent.py download-files  # one-time: turn detector and VAD models
-python seed.py                  # creates shop.db
-```
-
-Then, with the virtual environment active (`source .venv/bin/activate`):
-
-```bash
-python agent.py dev                       # terminal 1
-uvicorn token_server:app --port 8000      # terminal 2
-open -a "Google Chrome" index.html        # terminal 3
-```
 
 ## Testing
 
@@ -264,22 +317,3 @@ python scripts/draw_graph.py    # regenerate the diagram after changing the grap
 The graph tests drive the real `LLMAdapter` with a scripted fake model, so routing, hand-offs, the gate, persistence and barge-in are all tested without any API.
 
 Optionally, set `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` in `.env` to see every graph step as a trace.
-
-## Test orders
-
-The data is the same on every seed, and dates are relative to the day you run `seed.py`. Re-run it to undo reschedules and tickets.
-
-| Order ID | Status | Item | Customer | Verify with (last 4) |
-|---|---|---|---|---|
-| ORD-48213 | delayed: weather hold at the Denver hub | Stainless steel espresso machine | Maya Patel | 0142 |
-| ORD-51907 | delayed: carrier backlog | Noise-cancelling headphones | James Carter | 0187 |
-| ORD-36458 | delayed: address issue, apartment number missing | Ergonomic office chair | Sofia Ramirez | 0123 |
-| ORD-72041 | out for delivery | Robot vacuum cleaner | Daniel Kim | 0168 |
-| ORD-19376 | delivered | Cast iron skillet set | Maya Patel | 0142 |
-| ORD-60582 | delivered | Trail running shoes | Aisha Johnson | 0119 |
-| ORD-27719 | cancelled | Adjustable standing desk | Lucas Moreau | 0156 |
-| ORD-83350 | returned | Insulated winter parka | Priya Nair | 0131 |
-| ORD-44926 | processing | Mechanical keyboard | Ethan Brooks | 0174 |
-| ORD-95063 | shipped | Digital air fryer | Hannah Weber | 0109 |
-
-To try the phone-number path, give Maya's full number, **720-555-0142**. It has two orders: ORD-48213 and ORD-19376.

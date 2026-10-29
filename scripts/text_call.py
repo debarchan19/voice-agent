@@ -1,4 +1,4 @@
-"""A real end-to-end call without audio: real Claude, real LLMAdapter, real graph, temp database.
+"""A real end-to-end call without audio: the real model, real LLMAdapter, real graph, temp database.
 
 It plays the caller's side as text, prints what the agent would say, and checks the things that
 are easy to get wrong in voice: no tool text spoken, verification digits never echoed, hand-offs

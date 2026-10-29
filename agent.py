@@ -59,10 +59,14 @@ async def entrypoint(ctx: JobContext) -> None:
             context=call,
             stream_mode="custom",
         ),
-        tts=cartesia.TTS(model="sonic-2"),
+        # sonic-3: Cartesia's most natural-sounding model, and slightly quicker to first audio.
+        tts=cartesia.TTS(model="sonic-3"),
         vad=ctx.proc.userdata["vad"],
         turn_handling={
             "turn_detection": EnglishModel(),
+            # Once the turn detector judges the sentence finished, reply after 0.3s instead of the
+            # default 0.5s. Mid-sentence pauses are still covered by the detector (up to max_delay).
+            "endpointing": {"min_delay": 0.3, "max_delay": 3.0},
             "interruption": {"enabled": True},
             # LiveKit starts a reply speculatively before the caller finishes. Here that would
             # run tools early (burning a verification attempt, or worse), so it stays off.
