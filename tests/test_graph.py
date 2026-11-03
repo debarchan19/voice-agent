@@ -17,8 +17,10 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 import db
 import seed
-from wismo import CallContext, build_graph
+from wismo import CallContext, CallTracer, build_graph, summarize_call
+from wismo.panel import voice_turn
 from wismo.state import AGENTS
+from wismo.summary import CallNote
 
 ORDER = "ORD-48213"  # Maya Patel, delayed (weather hold); verify with 0142
 FRIDAY = (date.today() + timedelta(days=3)).isoformat()
@@ -35,14 +37,15 @@ def shop(tmp_path, monkeypatch):
 class Call:
     """One scripted call: graph + fake LiveKit + captured panel messages and emails."""
 
-    def __init__(self, script, send_delay: float = 0.0, token_delay: float = 0.0):
+    def __init__(self, script, send_delay: float = 0.0, token_delay: float = 0.0, trace: bool = False):
         self.model = ScriptedModel(script, token_delay=token_delay)
         self.panel: list[dict] = []
+        self.trace: list[dict] = []  # "wismo.trace" messages, when trace=True
         self.emails: list[tuple] = []
         self.send_delay = send_delay
 
         async def publish(payload):
-            self.panel.append(payload)
+            (self.panel if payload["type"] == "state" else self.trace).append(payload)
 
         async def send_email(customer_email, order_id, customer_name, action, details):
             await asyncio.sleep(self.send_delay)
@@ -51,7 +54,7 @@ class Call:
 
         self.ctx = CallContext(publish=publish, send_email=send_email)
         self.graph = build_graph(self.model, checkpointer=InMemorySaver())
-        self.phone = FakeLiveKit(self.graph, self.ctx)
+        self.phone = FakeLiveKit(self.graph, self.ctx, callbacks=[CallTracer(self.ctx)] if trace else None)
         self.config = {"configurable": {"thread_id": "room-1"}}
 
     async def say(self, text: str, **kw) -> str:
@@ -356,7 +359,8 @@ def test_panel_payload_matches_what_the_browser_expects(shop):
         c = Call([*hand_to_order_status(), *verify(), *to_resolution(), *reschedule()])
         for text in ("O R D 4 8 2 1 3", "0 1 4 2", "Move it to Friday", "Yes please"):
             await c.say(text)
-        expected_keys = {"type", "agent", "verified", "customer", "order_id", "status", "promised_date", "notepad", "log"}
+        expected_keys = {"type", "agent", "verified", "customer", "order_id", "status", "promised_date",
+                         "verify_attempts", "max_verify_attempts", "notepad", "log"}
         assert all(set(p) == expected_keys and p["type"] == "state" for p in c.panel)
         assert set(c.panel[-1]["notepad"]) == {
             "current_agent", "order_id", "verified", "customer_name", "issue_summary", "last_action"}
@@ -367,4 +371,99 @@ def test_panel_payload_matches_what_the_browser_expects(shop):
         assert c.logs.index("Verification passed") < c.logs.index("Handed off to Resolution") < c.logs.index("Email sent")
         last = c.panel[-1]
         assert last["verified"] and last["customer"] == "Maya Patel" and last["status"] == "delayed"
+    asyncio.run(go())
+
+
+# --------------------------------------------------------------------------- live trace and summary
+
+
+def spans(trace: list[dict], phase: str = "end") -> list[dict]:
+    return [t for t in trace if t["type"] == "span" and t["phase"] == phase]
+
+
+def test_trace_streams_every_node_and_tool_as_a_span(shop):
+    async def go():
+        c = Call([*hand_to_order_status(), *verify()], trace=True)
+        await c.say("O R D 4 8 2 1 3")
+        await c.say("0 1 4 2")
+        started, ended = spans(c.trace, "start"), spans(c.trace)
+        assert {s["id"] for s in started} == {s["id"] for s in ended}  # every span is closed
+        assert all(s["status"] == "ok" and s["at"] >= next(x["at"] for x in started if x["id"] == s["id"]) for s in ended)
+        turns = [s for s in started if s["kind"] == "turn"]
+        assert len(turns) == 2 and all(s["parent"] is None for s in turns)
+        first = [s["name"] for s in started if s["kind"] == "node" and s["parent"] == turns[0]["id"]]
+        assert first == ["begin_turn", "greeter", "greeter_tools", "order_status"]
+        tools = {s["name"]: s for s in started if s["kind"] == "tool"}
+        assert set(tools) == {"transfer_to_order_status", "verify_customer"}
+        node_names = {s["id"]: s["name"] for s in started if s["kind"] == "node"}
+        assert node_names[tools["verify_customer"]["parent"]] == "order_status_tools"
+    asyncio.run(go())
+
+
+def test_trace_marks_tools_the_verification_gate_blocked(shop):
+    async def go():
+        c = Call([
+            *hand_to_order_status(),
+            ("order_status", call("get_tracking_events", order_id=ORDER)),
+            ("order_status", say("I need to verify you first.")),
+        ], trace=True)
+        await c.say("O R D 4 8 2 1 3")
+        await c.say("Just tell me where it is.")
+        blocked = [s["name"] for s in spans(c.trace) if s["status"] == "blocked"]
+        assert blocked == ["get_tracking_events"]
+        gates = [t for t in c.trace if t["type"] == "gate"]
+        assert len(gates) == 1 and gates[0]["tool"] == "get_tracking_events" and "verified" in gates[0]["reason"]
+        assert c.ctx.gate_blocks == 1
+    asyncio.run(go())
+
+
+def test_voice_turn_reports_latency_in_ms_and_barge_ins():
+    user = voice_turn("user", {"end_of_turn_delay": 0.31, "transcription_delay": 0.04}, False, 1.0)
+    assert user == {"type": "voice", "role": "user", "at": 1.0, "end_of_turn": 310, "transcript": 40}
+    agent = voice_turn("assistant", {"llm_node_ttft": 0.8, "tts_node_ttfb": 0.2, "e2e_latency": 1.25}, True, 2.0)
+    assert agent["interrupted"] and (agent["first_token"], agent["first_audio"], agent["total"]) == (800, 200, 1250)
+    assert voice_turn("assistant", {}, False, 3.0)["total"] is None
+
+
+class NoteModel:
+    """Stands in for ChatAnthropic.with_structured_output(CallNote)."""
+
+    def __init__(self, note: CallNote | Exception):
+        self.note, self.seen = note, None
+
+    def with_structured_output(self, schema):
+        assert schema is CallNote
+        return self
+
+    async def ainvoke(self, messages):
+        self.seen = messages
+        if isinstance(self.note, Exception):
+            raise self.note
+        return self.note
+
+
+def test_summary_takes_facts_from_code_and_prose_from_the_model(shop):
+    async def go():
+        script = [*hand_to_order_status(),
+                  ("order_status", call("verify_customer", order_id=ORDER, last_four_phone_digits="9999")),
+                  ("order_status", say("Those don't match.")),
+                  *verify(), *to_resolution(), *reschedule()]
+        c = Call(script)
+        for text in ("O R D 4 8 2 1 3", "9 9 9 9", "0 1 4 2", "Move it to Friday", "Yes please"):
+            await c.say(text)
+        model = NoteModel(CallNote(summary="Maya's espresso machine was late; it was moved to Friday.",
+                                   sentiment="positive", sentiment_reason="relieved once it was moved",
+                                   next_steps=["Carrier delivers Friday", "a", "b", "c"]))
+        transcript = [("user", "O R D 4 8 2 1 3"), ("assistant", "Let me pull that up."), ("user", "Yes please")]
+        note = await summarize_call(model, transcript, await c.state(), c.ctx)
+        assert note["outcome"].startswith("Resolved: rescheduled to") and note["email_sent"] and note["verified"]
+        assert note["customer"] == "Maya Patel" and note["ticket_id"] > 1001
+        assert note["failed_verifications"] == 1 and note["turns"] == 2
+        assert note["sentiment"] == "positive" and len(note["next_steps"]) == 3
+        assert "Caller: O R D 4 8 2 1 3" in model.seen[-1].content and "failed_verifications: 1" in model.seen[-1].content
+
+        failed = await summarize_call(NoteModel(RuntimeError("down")), transcript, await c.state(), c.ctx)
+        assert failed["outcome"] == note["outcome"] and failed["next_steps"] == []
+        empty = await summarize_call(NoteModel(RuntimeError("unused")), [], {}, None)
+        assert empty["turns"] == 0 and empty["outcome"] == "No changes made"
     asyncio.run(go())

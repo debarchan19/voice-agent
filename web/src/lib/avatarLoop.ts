@@ -4,13 +4,7 @@ import type { Signals } from "./signals";
 export interface AvatarParts {
   root: SVGSVGElement;
   head: SVGGElement;
-  headBack: SVGGElement;
   shoulders: SVGGElement;
-  hairBack: SVGGElement;
-  bangs: SVGGElement;
-  lockL: SVGGElement;
-  lockR: SVGGElement;
-  ahoge: SVGGElement;
   brows: SVGGElement;
   lidL: SVGGElement;
   lidR: SVGGElement;
@@ -29,6 +23,7 @@ const MOUTH_UP = [0.1, 0.32, 0.6];
 const HYSTERESIS = 0.06;
 const MOUTH_HOLD = 0.07; // seconds a mouth shape is held, so it can't flicker
 const BLINK_TIME = 0.17;
+const LID_TRAVEL = 14; // how far the eyelid slides down to fully close the eye
 const MIC_ACTIVE = 0.12; // normalised mic level that counts as the caller speaking
 const AGENT_AUDIBLE = 0.06;
 
@@ -75,8 +70,6 @@ export function startAvatarLoop(parts: AvatarParts, signals: Signals): () => voi
   let lookTargetX = 0;
   let lookTargetY = 0;
   let nextLook = rand(1, 3);
-  let prevHeadRot = 0;
-  let hairLag = 0;
   let lastMood = "";
 
   // Debug stats, flushed to the overlay twice a second.
@@ -127,19 +120,7 @@ export function startAvatarLoop(parts: AvatarParts, signals: Signals): () => voi
     const headY = breath * 0.9 - loud * 2.5 * motion;
     const head = `translate(0 ${f(headY)}) rotate(${f(headRot)} 200 300)`;
     set(parts.head, "transform", head);
-    set(parts.headBack, "transform", head);
     set(parts.shoulders, "transform", `translate(0 ${f(breath * 1.5)})`);
-
-    // ---- hair: each layer sways on its own phase, and trails the head a little
-    const rotVel = dt > 0 ? (headRot - prevHeadRot) / dt : 0;
-    prevHeadRot = headRot;
-    hairLag = ease(hairLag, -rotVel * 0.6, 0.25, dt);
-    const lag = hairLag * motion;
-    set(parts.hairBack, "transform", `rotate(${f(Math.sin(t * 0.8 - 0.5) * 0.9 * motion + lag)} 200 110)`);
-    set(parts.bangs, "transform", `rotate(${f(Math.sin(t * 0.9 + 0.3) * 0.5 * motion + lag * 0.4)} 200 90)`);
-    set(parts.lockL, "transform", `rotate(${f(Math.sin(t * 1.1) * 2.2 * motion + lag * 1.4)} 130 172)`);
-    set(parts.lockR, "transform", `rotate(${f(Math.sin(t * 1.1 + 1.7) * 2.2 * motion + lag * 1.4)} 270 172)`);
-    set(parts.ahoge, "transform", `rotate(${f((Math.sin(t * 1.7) * 4 + loud * 8 + lag * 2) * motion)} 206 80)`);
 
     // ---- blinking at random 2-5 s intervals, sometimes twice
     if (t >= nextBlink) {
@@ -149,15 +130,15 @@ export function startAvatarLoop(parts: AvatarParts, signals: Signals): () => voi
     }
     const p = (t - blinkAt) / BLINK_TIME;
     const closed = p >= 0 && p < 1 ? Math.sin(p * Math.PI) : 0;
-    const lid = `translate(0 ${f(closed * 54)})`;
+    const lid = `translate(0 ${f(closed * LID_TRAVEL)})`;
     set(parts.lidL, "transform", lid);
     set(parts.lidR, "transform", lid);
 
     // ---- small eye movements (the big "thinking" glance is a CSS transition on a parent group)
     if (t >= nextLook) {
       const calm = s.mood === "listening" || s.mood === "speaking";
-      lookTargetX = rand(-2.5, 2.5) * (calm ? 0.6 : 1);
-      lookTargetY = rand(-1.5, 1.5);
+      lookTargetX = rand(-1.4, 1.4) * (calm ? 0.6 : 1);
+      lookTargetY = rand(-0.8, 0.8);
       nextLook = t + rand(1.2, 3.5);
     }
     lookX = ease(lookX, lookTargetX * motion, 0.06, dt);

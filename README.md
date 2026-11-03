@@ -33,7 +33,8 @@ Built on a LangGraph graph of three specialist agents (Greeter, Order Status, Re
 - **Confirms by email** after any change, and says honestly if the email failed.
 - **Hands off between three specialist agents** (Greeter, Order Status, Resolution) in a LangGraph graph, while the caller experiences one continuous conversation.
 - **Handles real conversation:** it waits when you pause mid-thought and stops talking the moment you interrupt.
-- **Shows its work:** a live panel makes every hand-off and tool call visible.
+- **Shows its work:** the browser draws the LangGraph graph lighting up as each turn runs, a waterfall of every node, model call and tool call, the verification gate, and every barge-in.
+- **Writes the after-call note:** on End call, a summary with the caller's sentiment and next steps, built on facts from code.
 
 All customer and order data is fake and for demo purposes only.
 
@@ -60,7 +61,7 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 cp .env.example .env            # then fill in your keys
 python agent.py download-files  # one-time: turn detector and VAD models
-python seed.py                  # creates shop.db with 10 customers and 10 orders
+python seed.py                  # creates shop.db with 11 customers and 11 orders
 ```
 
 **2. Run, in three terminals** (activate the virtual environment in each of the first two):
@@ -75,7 +76,15 @@ Click **Start conversation**, allow the microphone, and try an order from the [t
 
 ## Animated front end (`web/`)
 
-The `web/` folder holds a second browser client: a React and TypeScript app with an animated anime-style host, live captions and the same call panel. It talks to the same backend, so nothing on the Python side changes. The original `index.html` still works.
+The `web/` folder holds a second browser client: a React and TypeScript app laid out for a screen recording, in three columns. The original `index.html` still works.
+
+| Column | What it shows |
+|---|---|
+| **The experience** | Sam, an animated courier host, with live captions and the call controls. A barge-in flashes a red ring and a *Caller cut in* banner, and the cut-off caption is marked. |
+| **The system** | The LangGraph graph, with each node lighting up while it runs and each edge as the run moves along it. Below it, a waterfall of the turn: every node, model call (with its first-token mark) and tool call on one time axis, the voice latency of the reply, and a bar per turn for the whole call. |
+| **The data** | Call details, the verification gate (locked or unlocked, wrong attempts, calls it blocked), the activity log, and the graph state. After **End call**, the after-call summary. |
+
+Everything stays on screen after the call ends, until the next one starts.
 
 **You also need:** Node.js 20 or newer.
 
@@ -108,6 +117,13 @@ Open http://localhost:5173 and click **Start call**. The Vite dev server proxies
 
 **Previewing poses without a call:** in dev, add `?mood=listening`, `?mood=thinking` or `?mood=interrupted` to the URL.
 
+**Replaying a call without a backend:** in dev, open `http://localhost:5173/?replay`. It plays [web/public/replay.json](web/public/replay.json), a real showcase call recorded with `python scripts/text_call.py --record web/public/replay.json`, through the same handlers as a live call. There's no audio, so speaking time is simulated and Sam's mouth stays still; graph, tool and model timings are the real ones. Press **R** to restart, and add `&speed=2` to play faster.
+
+**Where the live views come from:**
+- **Graph and waterfall:** `CallTracer` ([wismo/trace.py](wismo/trace.py)) is a LangChain callback handler on the graph's config. It sees the same events a LangSmith trace is built from, and streams node, model and tool spans on the `wismo.trace` data topic.
+- **Voice latency and barge-ins:** `agent.py` forwards LiveKit's per-message metrics (end of turn, transcript delay, first token, first audio, total) and its `interrupted` flag for every spoken turn.
+- **Summary:** **End call** calls the agent's `wrap_up` RPC before hanging up. [wismo/summary.py](wismo/summary.py) takes the outcome, ticket, email and verification counts from code, and asks the model only for the summary, sentiment and next steps.
+
 ## Test orders
 
 The data is the same on every seed, and dates are relative to the day you run `seed.py`. Re-run it to undo reschedules and tickets.
@@ -124,8 +140,11 @@ The data is the same on every seed, and dates are relative to the day you run `s
 | ORD-83350 | returned | Insulated winter parka | Priya Nair | 0131 |
 | ORD-44926 | processing | Mechanical keyboard | Ethan Brooks | 0174 |
 | ORD-95063 | shipped | Digital air fryer | Hannah Weber | 0109 |
+| ORD-62814 | delayed: damaged in handling, being repacked | Handmade ceramic dinner set | Rohan Gupta | 0177 |
 
 To try the phone-number path, give Maya's full number, **720-555-0142**. It has two orders: ORD-48213 and ORD-19376.
+
+For a recorded demo, use Rohan's order and follow [docs/demo-script.md](docs/demo-script.md). It covers social engineering, a prompt injection, a wrong PIN, a barge-in, a reschedule and the summary in one call.
 
 ## Stack
 
@@ -270,6 +289,7 @@ LiveKit's *preemptive generation* (starting a reply before the caller finishes) 
 | Plain reply | 1 |
 | Verify, status question, hand-off | 2 |
 | Action plus email | 2, plus about 1 s for SMTP |
+| After-call summary, on End call | 1 |
 
 There's no router or supervisor model call: routing is plain code reading the state. Measured in a real text run, the first words came back in about 1 to 2 seconds per model call.
 
@@ -328,17 +348,19 @@ After a successful reschedule, refund request, ticket or escalation, the `confir
 | `wismo/tools.py` | All tools, the verification gate, and idempotent side effects |
 | `wismo/state.py` | `CallState` (checkpointed) and `CallContext` (per-call runtime) |
 | `wismo/prompts.py` | Voice rules, per-agent roles, greeting |
-| `wismo/panel.py` | Publishes call state to the browser panel |
+| `wismo/panel.py` | Publishes call state, voice latency and trace messages to the browser |
+| `wismo/trace.py` | `CallTracer`: streams every node, model call and tool call as a timed span |
+| `wismo/summary.py` | The after-call summary: facts from code, prose from the model |
 | `wismo/facts.py` | Turns database rows into speakable text |
-| `db.py`, `seed.py` | SQLite schema, queries, and 10 fake customers and orders |
+| `db.py`, `seed.py` | SQLite schema, queries, and 11 fake customers and orders |
 | `email_tool.py` | Builds and sends confirmation emails |
 | `token_server.py` | FastAPI `GET /token` for the browser |
 | `index.html` | Browser client: voice, live transcript, call panel |
 | `web/` | Animated front end: React, TypeScript, Vite, Tailwind, SVG avatar, captions, call panel |
-| `docs/` | Graph diagram source, the demo GIF and a screenshot |
+| `docs/` | Graph diagram source, the demo GIF, a screenshot and the [demo script](docs/demo-script.md) |
 | `tests/` | Database, gate, email and graph tests (scripted fake model, no network) |
 | `scripts/draw_graph.py` | Regenerates the graph diagram |
-| `scripts/text_call.py` | A real end-to-end call as text, using the real model |
+| `scripts/text_call.py` | A real end-to-end call as text, using the real model, with automatic checks and an optional recording for the web replay |
 
 The previous version, built on LiveKit's own hand-off mechanism instead of LangGraph, is in git history at commit `2b1b370`.
 
@@ -346,10 +368,20 @@ The previous version, built on LiveKit's own hand-off mechanism instead of LangG
 
 ```bash
 pytest -q                       # all tests; no network, no real email
-python scripts/text_call.py     # a real call as text through the real model (needs your API key)
+python scripts/text_call.py     # the showcase call as text through the real model (needs your API key)
 python scripts/draw_graph.py    # regenerate the diagram after changing the graph
 ```
 
 The graph tests drive the real `LLMAdapter` with a scripted fake model, so routing, hand-offs, the gate, persistence and barge-in are all tested without any API.
 
-Optionally, set `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` in `.env` to see every graph step as a trace.
+`text_call.py` scenarios:
+
+| Scenario | What it checks |
+|---|---|
+| `showcase` (default) | Rohan's call from the [demo script](docs/demo-script.md): no order details before verification, social engineering and a prompt injection refused, the wrong PIN counted, a barge-in mid-sentence, the reschedule, one email, and the after-call summary |
+| `reschedule` | James's delayed headphones: verify, hear why it's late, move the delivery |
+| `search` | A general question first, so the Greeter uses web search, then a normal order call |
+
+Add `--trace` to print each turn's waterfall in the terminal, or `--record web/public/replay.json` to save the call for the web replay.
+
+**LangSmith:** set `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` in `.env` to send every graph run to LangSmith as well. Each turn is named *Delivery Desk turn*, tagged `delivery-desk`, and grouped into one thread per call. The browser's waterfall is built from the same callback events, so the two show the same spans.
