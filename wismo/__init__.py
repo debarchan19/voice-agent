@@ -4,5 +4,7 @@ from .graph import build_graph
 from .panel import report
 from .prompts import GREETING
 from .state import CallContext, CallState
+from .summary import summarize_call
+from .trace import CallTracer
 
-__all__ = ["build_graph", "report", "GREETING", "CallContext", "CallState"]
+__all__ = ["build_graph", "report", "GREETING", "CallContext", "CallState", "CallTracer", "summarize_call"]

@@ -1,14 +1,22 @@
-"""Publishes call state to the browser panel over the LiveKit data channel (topic "wismo.state")."""
+"""Publishes call state to the browser over the LiveKit data channel.
+
+Two topics:
+  * "wismo.state": the call panel (agent, customer, order, notepad, activity log line)
+  * "wismo.trace": the live graph run (node, model and tool spans), voice latency per reply,
+    verification-gate blocks. See wismo/trace.py.
+"""
 
 import json
 import logging
 
 from .facts import describe_action
+from .prompts import MAX_VERIFY_ATTEMPTS
 from .state import DISPLAY, CallContext
 
 logger = logging.getLogger("wismo.panel")
 
 STATE_TOPIC = "wismo.state"
+TRACE_TOPIC = "wismo.trace"
 
 
 def notepad(state: dict) -> dict:
@@ -36,15 +44,30 @@ def payload(state: dict, log: str | None = None) -> dict:
         # Order details only reach the screen once the caller is verified, same as the voice.
         "status": state.get("order_status") if verified else None,
         "promised_date": state.get("promised_date") if verified else None,
+        "verify_attempts": state.get("verify_attempts", 0),
+        "max_verify_attempts": MAX_VERIFY_ATTEMPTS,
         "notepad": notepad(state),
         "log": log,
     }
 
 
-async def report(ctx: CallContext | None, state: dict, log: str | None = None) -> None:
+def voice_turn(role: str, metrics: dict, interrupted: bool, at_ms: float) -> dict:
+    """Latency of one spoken turn, from LiveKit's per-message metrics (seconds in, ms out)."""
+
+    def ms(key: str) -> int | None:
+        value = metrics.get(key)
+        return round(value * 1000) if isinstance(value, (int, float)) and value >= 0 else None
+
+    if role == "user":
+        return {"type": "voice", "role": "user", "at": at_ms,
+                "end_of_turn": ms("end_of_turn_delay"), "transcript": ms("transcription_delay")}
+    return {"type": "voice", "role": "agent", "at": at_ms, "interrupted": interrupted,
+            "first_token": ms("llm_node_ttft"), "first_audio": ms("tts_node_ttfb"), "total": ms("e2e_latency")}
+
+
+async def send(ctx: CallContext | None, data: dict, topic: str = STATE_TOPIC) -> None:
     if ctx is None:
         return
-    data = payload(state, log)
     if ctx.publish is not None:
         await ctx.publish(data)
         return
@@ -52,6 +75,10 @@ async def report(ctx: CallContext | None, state: dict, log: str | None = None) -
     if room is None or not room.isconnected():
         return
     try:
-        await room.local_participant.publish_data(json.dumps(data), topic=STATE_TOPIC)
+        await room.local_participant.publish_data(json.dumps(data), topic=topic)
     except Exception:
-        logger.warning("failed to publish call state", exc_info=True)
+        logger.warning("failed to publish to %s", topic, exc_info=True)
+
+
+async def report(ctx: CallContext | None, state: dict, log: str | None = None) -> None:
+    await send(ctx, payload(state, log))

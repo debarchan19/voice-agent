@@ -27,6 +27,7 @@ CUSTOMERS = [
     ("Ethan Brooks", "805-555-0174"),
     ("Hannah Weber", "720-555-0109"),
     ("Omar Haddad", "312-555-0195"),
+    ("Rohan Gupta", "646-555-0177"),  # the showcase caller: see docs/demo-script.md
 ]
 
 CARRIER_PREFIX = {"Swift Parcel": "SP", "NorthStar Freight": "NS", "Metro Express": "MX", "BlueRoute Logistics": "BR"}
@@ -43,6 +44,10 @@ DELAY_REASONS = {
     "address": (
         "The driver couldn't deliver because the apartment number is missing from the address",
         "Delivery attempt failed: address incomplete, apartment number missing",
+    ),
+    "repack": (
+        "The box was damaged in handling at the Memphis sort facility, so the carrier is repacking it before it moves on",
+        "Exception: package damaged in handling, held for repacking",
     ),
 }
 
@@ -84,6 +89,8 @@ ORDERS = [
               "Columbus, OH", "Memphis, TN", "Austin, TX", 1, 5),
     OrderSpec("ORD-95063", 8, "Digital air fryer", "shipped", "Metro Express",
               "Dallas, TX", "Denver, CO", "Phoenix, AZ", 3, 2),
+    OrderSpec("ORD-62814", 10, "Handmade ceramic dinner set", "delayed", "BlueRoute Logistics",
+              "Columbus, OH", "Memphis, TN", "Atlanta, GA", 6, -1, delay="repack", label="delayed (damaged, repacking)"),
 ]
 
 
