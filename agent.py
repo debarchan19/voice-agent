@@ -4,19 +4,31 @@ Everything the agent *thinks* (who it is talking to, which tools to call, when t
 in the LangGraph graph in `wismo/`. This file only wires the voice pipeline around it:
 
     caller -> Deepgram STT -> LLMAdapter -> LangGraph graph -> Cartesia TTS -> caller
+
+It also feeds the browser's demo views: a live trace of each graph run (`CallTracer`), the latency
+and barge-ins of every spoken reply, and an after-call summary when the caller presses End call.
 """
+
+import asyncio
+import json
+import os
 
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 from langgraph.checkpoint.memory import InMemorySaver
-from livekit import agents
-from livekit.agents import Agent, AgentServer, AgentSession, JobContext, JobProcess
+from livekit import agents, rtc
+from livekit.agents import Agent, AgentServer, AgentSession, ConversationItemAddedEvent, JobContext, JobProcess
+from livekit.agents.llm import ChatMessage
 from livekit.plugins import cartesia, deepgram, langchain, silero
 from livekit.plugins.turn_detector.english import EnglishModel
 
-from wismo import GREETING, CallContext, build_graph, report
+from wismo import GREETING, CallContext, CallTracer, build_graph, report, summarize_call
+from wismo.panel import TRACE_TOPIC, send, voice_turn
+from wismo.trace import now_ms
 
 load_dotenv()
+
+MODEL = "claude-sonnet-4-6"
 
 
 class VoiceShell(Agent):
@@ -44,23 +56,27 @@ server = AgentServer(setup_fnc=prewarm)
 async def entrypoint(ctx: JobContext) -> None:
     call = CallContext(room=ctx.room)
     # One graph (and one in-memory checkpoint) per call, so nothing leaks between callers.
-    graph = build_graph(ChatAnthropic(model="claude-sonnet-4-6", max_tokens=400), checkpointer=InMemorySaver())
+    graph = build_graph(ChatAnthropic(model=MODEL, max_tokens=400), checkpointer=InMemorySaver())
+    thread_id = f"{ctx.room.name}:{ctx.job.id}"
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": 25,
+        # The browser's live graph and waterfall. With LANGSMITH_TRACING=true the same runs also
+        # go to LangSmith, named and grouped into one thread per call.
+        "callbacks": [CallTracer(call)],
+        "run_name": "Delivery Desk turn",
+        "tags": ["delivery-desk"],
+        "metadata": {"thread_id": thread_id},
+    }
 
     session = AgentSession(
         stt=deepgram.STT(model="nova-3", interim_results=True),
         # "custom" stream mode: only text the graph deliberately streams is spoken, so tool
         # results and internal notes can never be read aloud.
-        llm=langchain.LLMAdapter(
-            graph,
-            config={
-                "configurable": {"thread_id": f"{ctx.room.name}:{ctx.job.id}"},
-                "recursion_limit": 25,
-            },
-            context=call,
-            stream_mode="custom",
-        ),
+        llm=langchain.LLMAdapter(graph, config=config, context=call, stream_mode="custom"),
         # sonic-3: Cartesia's most natural-sounding model, and slightly quicker to first audio.
-        tts=cartesia.TTS(model="sonic-3"),
+        # CARTESIA_VOICE_ID in .env picks the voice; unset, Cartesia's default voice is used.
+        tts=cartesia.TTS(model="sonic-3", **({"voice": voice} if (voice := os.getenv("CARTESIA_VOICE_ID")) else {})),
         vad=ctx.proc.userdata["vad"],
         turn_handling={
             "turn_detection": EnglishModel(),
@@ -74,8 +90,30 @@ async def entrypoint(ctx: JobContext) -> None:
         },
     )
 
+    # Latency of every spoken turn, and whether the caller cut the agent off.
+    pending: set[asyncio.Task] = set()
+
+    @session.on("conversation_item_added")
+    def on_item(ev: ConversationItemAddedEvent) -> None:
+        item = ev.item
+        if not isinstance(item, ChatMessage) or item.role not in ("user", "assistant"):
+            return
+        data = voice_turn(item.role, dict(item.metrics or {}), item.interrupted, now_ms())
+        task = asyncio.create_task(send(call, data, TRACE_TOPIC))
+        pending.add(task)
+        task.add_done_callback(pending.discard)
+
+    async def wrap_up(_: rtc.RpcInvocationData) -> str:
+        """Called by the browser's End call button, just before it hangs up."""
+        state = (await graph.aget_state({"configurable": {"thread_id": thread_id}})).values
+        transcript = [
+            (m.role, m.text_content or "") for m in session.history.messages() if m.role in ("user", "assistant")
+        ]
+        return json.dumps(await summarize_call(ChatAnthropic(model=MODEL, max_tokens=1000), transcript, state, call))
+
     await session.start(room=ctx.room, agent=VoiceShell(call))
     await ctx.connect()
+    ctx.room.local_participant.register_rpc_method("wrap_up", wrap_up)
 
 
 if __name__ == "__main__":

@@ -11,11 +11,18 @@ const LABELS: Record<string, string> = {
   speaking: "Speaking",
 };
 
+const CONNECTION_LABELS: Record<string, string> = {
+  disconnected: "Disconnected",
+  connecting: "Connecting",
+  reconnecting: "Reconnecting",
+  wrapping_up: "Writing summary",
+};
+
 /** Connection status pill: what a viewer sees at a glance in a recording. */
 export const StatusPill = memo(function StatusPill({ call }: { call: CallController }) {
   const { connection, agentState } = useStore(call.status);
   const label =
-    connection === "connected" ? (agentState ? LABELS[agentState] : "Waiting for agent") : connection[0]!.toUpperCase() + connection.slice(1);
+    connection === "connected" ? (agentState ? LABELS[agentState] : "Waiting for agent") : CONNECTION_LABELS[connection];
   const tone =
     connection === "disconnected"
       ? "bg-slate-500"
@@ -47,7 +54,7 @@ function MicIcon({ off }: { off: boolean }) {
 export const ControlBar = memo(function ControlBar({ call }: { call: CallController }) {
   const { connection, muted, error } = useStore(call.status);
   const live = connection === "connected" || connection === "reconnecting";
-  const busy = connection === "connecting";
+  const busy = connection === "connecting" || connection === "wrapping_up";
 
   return (
     <div className="flex flex-col items-center gap-2">
@@ -73,7 +80,7 @@ export const ControlBar = memo(function ControlBar({ call }: { call: CallControl
             live ? "bg-rose-500 text-white hover:bg-rose-400" : "bg-white text-slate-900 hover:bg-slate-200"
           }`}
         >
-          {busy ? "Connecting…" : live ? "End call" : "Start call"}
+          {connection === "connecting" ? "Connecting…" : busy ? "Writing summary…" : live ? "End call" : "Start call"}
         </button>
       </div>
       {error && <p className="max-w-md text-center text-sm text-rose-300">{error}</p>}

@@ -10,16 +10,32 @@ import {
 import { LevelMeter, audioContext } from "./audio";
 import { type Signals, createSignals } from "./signals";
 import { createStore } from "./store";
-import type { AgentState, Caption, Connection, LogLine, Mood, PanelState } from "./types";
+import { applyTrace, resetTrace } from "./trace";
+import type {
+  AgentState,
+  Caption,
+  CallSummary,
+  Connection,
+  LogLine,
+  Mood,
+  PanelState,
+  SummaryState,
+  TraceMessage,
+  TraceView,
+} from "./types";
 
 const TOKEN_URL = "/token"; // proxied to the FastAPI token server by Vite
 const STATE_TOPIC = "wismo.state"; // wismo/panel.py
+const TRACE_TOPIC = "wismo.trace"; // wismo/trace.py and agent.py
 const TRANSCRIPTION_TOPIC = "lk.transcription"; // LiveKit Agents' built-in captions
 const AGENT_STATE_ATTR = "lk.agent.state";
+const WRAP_UP_RPC = "wrap_up"; // agent.py: returns the after-call summary as JSON
 
 const MAX_CAPTIONS = 4;
-const MAX_LOG_LINES = 8;
+const MAX_LOG_LINES = 12;
 const INTERRUPT_REACTION_MS = 450;
+/** Two interruption signals this close together (browser heuristic, then the agent's report) are one barge-in. */
+const SAME_INTERRUPT_MS = 3000;
 /**
  * "Agent stopped speaking" counts as a barge-in only if the caller was talking AND the agent was
  * still audible at that moment. A natural end of speech has a moment of silence first.
@@ -37,10 +53,20 @@ export interface CallStatus {
 export interface PanelView {
   state: PanelState | null;
   log: LogLine[];
+  /** Tool calls the verification gate refused this call, and the last one's name. */
+  blocked: number;
+  blockedTool: string | null;
+  /** Wrong last-four attempts this call. Unlike the state's verify_attempts, never reset. */
+  failedVerifications: number;
+}
+
+/** Bumped once per barge-in; components replay their flash when `count` changes. */
+export interface Interrupts {
+  count: number;
 }
 
 const IDLE_STATUS: CallStatus = { connection: "disconnected", agentState: null, muted: false, error: null };
-const EMPTY_PANEL: PanelView = { state: null, log: [] };
+const EMPTY_PANEL: PanelView = { state: null, log: [], blocked: 0, blockedTool: null, failedVerifications: 0 };
 
 function moodFor(state: AgentState | null): Mood {
   switch (state) {
@@ -53,19 +79,33 @@ function moodFor(state: AgentState | null): Mood {
   }
 }
 
+function toneOf(text: string): LogLine["tone"] {
+  if (/blocked/i.test(text)) return "blocked";
+  if (/failed|not found/i.test(text)) return "warn";
+  if (/passed|sent|rescheduled|handed off|requested|opened|escalated/i.test(text)) return "good";
+  return undefined;
+}
+
 /**
- * Owns the LiveKit room. Low-frequency data (connection, agent state, panel, captions) goes into
- * small stores that only the components showing it subscribe to. Per-frame data lives in
- * `signals`, which the avatar loop reads without involving React.
+ * Owns the LiveKit room. Low-frequency data (connection, agent state, panel, trace, captions)
+ * goes into small stores that only the components showing it subscribe to. Per-frame data lives
+ * in `signals`, which the avatar loop reads without involving React.
+ *
+ * When a call ends, the panel, trace, captions and summary are kept on screen until the next
+ * call starts, so the end state can be shown and screenshotted.
  */
 export class CallController {
   readonly status = createStore<CallStatus>(IDLE_STATUS);
   readonly panel = createStore<PanelView>(EMPTY_PANEL);
   readonly captions = createStore<Caption[]>([]);
+  readonly trace = createStore<TraceView>(resetTrace());
+  readonly summary = createStore<SummaryState>({ phase: "idle" });
+  readonly interrupts = createStore<Interrupts>({ count: 0 });
   readonly signals: Signals = createSignals();
 
   private room: Room | null = null;
   private interruptTimer: number | undefined;
+  private lastInterruptAt = -Infinity;
   private logId = 0;
 
   private patchStatus(patch: Partial<CallStatus>): void {
@@ -77,6 +117,10 @@ export class CallController {
     // Resume inside the click, before any await, so the browser allows audio.
     void audioContext().resume();
     this.patchStatus({ connection: "connecting", error: null });
+    this.panel.set(EMPTY_PANEL);
+    this.captions.set([]);
+    this.trace.set(resetTrace());
+    this.summary.set({ phase: "idle" });
 
     const room = new Room({ adaptiveStream: true, dynacast: true });
     this.room = room;
@@ -100,8 +144,29 @@ export class CallController {
     }
   }
 
+  /** End call: ask the agent for its after-call summary, then hang up. */
   async stop(): Promise<void> {
-    await this.room?.disconnect();
+    const room = this.room;
+    if (!room) return;
+    const agent = [...room.remoteParticipants.values()].find((p) => AGENT_STATE_ATTR in p.attributes);
+    if (agent && room.state === ConnectionState.Connected) {
+      this.patchStatus({ connection: "wrapping_up" });
+      this.summary.set({ phase: "writing" });
+      try {
+        await room.localParticipant.setMicrophoneEnabled(false); // nothing more reaches the agent
+        const reply = await room.localParticipant.performRpc({
+          destinationIdentity: agent.identity,
+          method: WRAP_UP_RPC,
+          payload: "",
+          responseTimeout: 20000,
+        });
+        this.summary.set({ phase: "done", note: JSON.parse(reply) as CallSummary });
+      } catch (err) {
+        console.warn("No call summary", err);
+        this.summary.set({ phase: "failed" });
+      }
+    }
+    await room.disconnect();
   }
 
   async toggleMute(): Promise<void> {
@@ -139,11 +204,13 @@ export class CallController {
     });
 
     room.on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
-      if (topic !== STATE_TOPIC) return;
+      if (topic !== STATE_TOPIC && topic !== TRACE_TOPIC) return;
       try {
-        this.onPanelState(JSON.parse(new TextDecoder().decode(payload)) as PanelState);
+        const data = JSON.parse(new TextDecoder().decode(payload));
+        if (topic === STATE_TOPIC) this.onPanelState(data as PanelState);
+        else this.onTrace(data as TraceMessage);
       } catch (err) {
-        console.warn("Bad call state message", err);
+        console.warn(`Bad ${topic} message`, err);
       }
     });
 
@@ -167,6 +234,46 @@ export class CallController {
     });
 
     room.on(RoomEvent.Disconnected, () => this.reset());
+  }
+
+  // ------------------------------------------------------------------ dev replay (lib/replay.ts)
+
+  /** Plays a recorded call through the same handlers a live one uses. Dev only. */
+  replayBegin(): void {
+    this.panel.set(EMPTY_PANEL);
+    this.captions.set([]);
+    this.trace.set(resetTrace());
+    this.summary.set({ phase: "idle" });
+    this.patchStatus({ connection: "connected", agentState: "idle", error: null });
+  }
+
+  replayMessage(topic: string, data: unknown): void {
+    if (topic === STATE_TOPIC) this.onPanelState(data as PanelState);
+    else if (topic === TRACE_TOPIC) this.onTrace(data as TraceMessage);
+  }
+
+  replayAgentState(state: AgentState): void {
+    this.onAgentState(state);
+  }
+
+  replayCaption(id: string, who: Caption["who"], text: string): void {
+    this.upsertCaption({ id, who, text });
+  }
+
+  replayInterrupt(): void {
+    this.signals.mood = "interrupted";
+    window.setTimeout(() => (this.signals.mood = moodFor(this.status.get().agentState)), INTERRUPT_REACTION_MS);
+    this.onInterrupted();
+  }
+
+  replayEnd(summary: CallSummary | null): void {
+    if (summary) this.summary.set({ phase: "done", note: summary });
+    else this.summary.set({ phase: "writing" });
+    if (summary) {
+      this.signals.mood = "idle";
+      this.patchStatus({ connection: "disconnected", agentState: null });
+    }
+    else this.patchStatus({ connection: "wrapping_up" });
   }
 
   private meterMic(room: Room): void {
@@ -204,19 +311,61 @@ export class CallController {
       this.interruptTimer = window.setTimeout(() => {
         s.mood = moodFor(this.status.get().agentState);
       }, INTERRUPT_REACTION_MS);
+      this.onInterrupted();
       return;
     }
     if (s.mood !== "interrupted") s.mood = moodFor(next);
   }
 
-  private onPanelState(state: PanelState): void {
-    const { log } = this.panel.get();
-    let nextLog = log;
-    if (state.log) {
-      const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-      nextLog = [...log, { id: ++this.logId, time, text: state.log }].slice(-MAX_LOG_LINES);
+  /**
+   * A barge-in, seen either by the browser (instantly, from audio levels) or reported by the agent
+   * (LiveKit marks the reply as interrupted). Whichever comes first triggers the flash.
+   */
+  private onInterrupted(): void {
+    const now = performance.now();
+    const fresh = now - this.lastInterruptAt > SAME_INTERRUPT_MS;
+    this.lastInterruptAt = now;
+    if (fresh) this.interrupts.set({ count: this.interrupts.get().count + 1 });
+
+    const list = this.captions.get();
+    const i = list.map((c) => c.who).lastIndexOf("agent");
+    if (i !== -1 && !list[i]!.cut) {
+      const next = list.slice();
+      next[i] = { ...list[i]!, cut: true };
+      this.captions.set(next);
     }
-    this.panel.set({ state, log: nextLog });
+  }
+
+  private addLog(text: string, tone = toneOf(text)): LogLine[] {
+    const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return [...this.panel.get().log, { id: ++this.logId, time, text, tone }].slice(-MAX_LOG_LINES);
+  }
+
+  private onPanelState(state: PanelState): void {
+    const view = this.panel.get();
+    const failed = state.log?.startsWith("Verification failed") ? 1 : 0;
+    this.panel.set({
+      ...view,
+      state,
+      log: state.log ? this.addLog(state.log) : view.log,
+      failedVerifications: view.failedVerifications + failed,
+    });
+  }
+
+  private onTrace(msg: TraceMessage): void {
+    this.trace.set(applyTrace(this.trace.get(), msg, Date.now()));
+    if (msg.type === "gate") {
+      const tool = msg.tool ?? "a tool";
+      const view = this.panel.get();
+      this.panel.set({
+        ...view,
+        blocked: view.blocked + 1,
+        blockedTool: tool,
+        log: this.addLog(`Blocked by verification gate: ${tool}`, "blocked"),
+      });
+    } else if (msg.type === "voice" && msg.role === "agent" && msg.interrupted) {
+      this.onInterrupted();
+    }
   }
 
   private upsertCaption(caption: Caption): void {
@@ -226,11 +375,12 @@ export class CallController {
       this.captions.set([...list, caption].slice(-MAX_CAPTIONS));
     } else if (list[i]?.text !== caption.text) {
       const next = list.slice();
-      next[i] = caption;
+      next[i] = { ...caption, cut: list[i]!.cut };
       this.captions.set(next);
     }
   }
 
+  /** Back to idle. Panel, trace, captions and summary stay on screen until the next call. */
   private reset(): void {
     window.clearTimeout(this.interruptTimer);
     this.room = null;
@@ -239,7 +389,6 @@ export class CallController {
     s.agentMeter?.dispose();
     Object.assign(s, { mood: "idle", micMeter: null, agentMeter: null, muted: false, micLevel: 0, gapStart: null });
     this.status.set({ ...IDLE_STATUS, error: this.status.get().error });
-    this.panel.set(EMPTY_PANEL);
-    this.captions.set([]);
+    if (this.summary.get().phase === "writing") this.summary.set({ phase: "failed" });
   }
 }
