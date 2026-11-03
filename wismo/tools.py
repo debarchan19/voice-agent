@@ -43,14 +43,18 @@ class ToolError(Exception):
     """The message goes back to the model as an error ToolMessage."""
 
 
+class GateError(ToolError):
+    """The verification gate refused a tool. The live trace shows these as blocked calls."""
+
+
 def require_verified(state: dict, order_id: str | None = None) -> str:
     if not state.get("verified") or not state.get("order_id"):
-        raise ToolError(
+        raise GateError(
             "The caller isn't verified yet. Ask for the last four digits of the phone "
             "number on the order and call verify_customer first."
         )
     if order_id and db.normalize_order_id(order_id) != state["order_id"]:
-        raise ToolError(f"Only the verified order, {state['order_id']}, can be discussed or changed.")
+        raise GateError(f"Only the verified order, {state['order_id']}, can be discussed or changed.")
     return state["order_id"]
 
 
@@ -259,6 +263,7 @@ async def verify_customer(order_id: str, last_four_phone_digits: str, runtime: R
 
     customer = await run_db(db.verify_customer, oid, last_four_phone_digits)
     if customer is None:
+        ctx.failed_verifications += 1
         left = MAX_VERIFY_ATTEMPTS - (attempts + 1)
         await report(ctx, {**s, "verify_attempts": attempts + 1}, f"Verification failed ({left} left)")
         return _reply(

@@ -36,16 +36,16 @@ def conn(tmp_path):
 
 
 def test_seed_matches_spec(conn):
-    assert conn.execute("SELECT COUNT(*) FROM customers").fetchone()[0] == 10
+    assert conn.execute("SELECT COUNT(*) FROM customers").fetchone()[0] == 11
     counts = dict(conn.execute("SELECT status, COUNT(*) FROM orders GROUP BY status").fetchall())
     assert counts == {
-        "delayed": 3, "out_for_delivery": 1, "delivered": 2, "cancelled": 1,
+        "delayed": 4, "out_for_delivery": 1, "delivered": 2, "cancelled": 1,
         "returned": 1, "processing": 1, "shipped": 1,
     }
     reasons = [r[0] for r in conn.execute("SELECT delay_reason FROM orders WHERE status = 'delayed'")]
-    assert len(set(reasons)) == 3 and all(reasons)
+    assert len(set(reasons)) == 4 and all(reasons)
     per_order = [r[0] for r in conn.execute("SELECT COUNT(*) FROM tracking_events GROUP BY order_id")]
-    assert len(per_order) == 10 and all(3 <= n <= 6 for n in per_order)
+    assert len(per_order) == 11 and all(3 <= n <= 6 for n in per_order)
     emails = [r[0] for r in conn.execute("SELECT email FROM customers")]
     assert all(e.endswith("@example.com") for e in emails)
 

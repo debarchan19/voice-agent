@@ -89,10 +89,13 @@ class FakeLiveKit:
     each turn, which is exactly what makes persistence tricky, so the fake does the same.
     """
 
-    def __init__(self, graph, ctx: CallContext, thread_id: str = "room-1"):
+    def __init__(self, graph, ctx: CallContext, thread_id: str = "room-1", callbacks: list | None = None):
+        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 25}
+        if callbacks:
+            config["callbacks"] = callbacks
         self.adapter = LLMAdapter(
             graph,
-            config={"configurable": {"thread_id": thread_id}, "recursion_limit": 25},
+            config=config,
             context=ctx,
             stream_mode="custom",
         )

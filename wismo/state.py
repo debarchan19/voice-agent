@@ -60,3 +60,6 @@ class CallContext:
     emails: dict[tuple, asyncio.Future] = field(default_factory=dict)
     last_effect: dict | None = None  # latest completed action, even if its tool call was interrupted
     verify_attempts: int = 0  # incremented BEFORE the db await, so a barge-in can't refund an attempt
+    # Totals for the after-call summary. Unlike verify_attempts, these never reset.
+    failed_verifications: int = 0
+    gate_blocks: int = 0  # tool calls the verification gate refused
