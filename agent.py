@@ -11,10 +11,10 @@ and barge-ins of every spoken reply, and an after-call summary when the caller p
 
 import asyncio
 import json
+import logging
 import os
 
 from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
 from langgraph.checkpoint.memory import InMemorySaver
 from livekit import agents, rtc
 from livekit.agents import Agent, AgentServer, AgentSession, ConversationItemAddedEvent, JobContext, JobProcess
@@ -23,12 +23,13 @@ from livekit.plugins import cartesia, deepgram, langchain, silero
 from livekit.plugins.turn_detector.english import EnglishModel
 
 from wismo import GREETING, CallContext, CallTracer, build_graph, report, summarize_call
+from wismo.llm import make_llm
 from wismo.panel import TRACE_TOPIC, send, voice_turn
 from wismo.trace import now_ms
 
 load_dotenv()
 
-MODEL = "claude-sonnet-4-6"
+logger = logging.getLogger("agent")
 
 
 class VoiceShell(Agent):
@@ -56,17 +57,20 @@ server = AgentServer(setup_fnc=prewarm)
 async def entrypoint(ctx: JobContext) -> None:
     call = CallContext(room=ctx.room)
     # One graph (and one in-memory checkpoint) per call, so nothing leaks between callers.
-    graph = build_graph(ChatAnthropic(model=MODEL, max_tokens=400), checkpointer=InMemorySaver())
+    # LLM_BACKEND picks Claude (default) or the self-hosted model; see wismo/llm.py.
+    llm, backend = make_llm(max_tokens=400)
+    logger.info("LLM backend for this call: %s", backend.label)
+    graph = build_graph(llm, checkpointer=InMemorySaver())
     thread_id = f"{ctx.room.name}:{ctx.job.id}"
     config = {
         "configurable": {"thread_id": thread_id},
         "recursion_limit": 25,
         # The browser's live graph and waterfall. With LANGSMITH_TRACING=true the same runs also
         # go to LangSmith, named and grouped into one thread per call.
-        "callbacks": [CallTracer(call)],
+        "callbacks": [CallTracer(call, backend=backend.label)],
         "run_name": "Delivery Desk turn",
         "tags": ["delivery-desk"],
-        "metadata": {"thread_id": thread_id},
+        "metadata": {"thread_id": thread_id, "llm_backend": backend.label},
     }
 
     session = AgentSession(
@@ -98,7 +102,7 @@ async def entrypoint(ctx: JobContext) -> None:
         item = ev.item
         if not isinstance(item, ChatMessage) or item.role not in ("user", "assistant"):
             return
-        data = voice_turn(item.role, dict(item.metrics or {}), item.interrupted, now_ms())
+        data = voice_turn(item.role, dict(item.metrics or {}), item.interrupted, now_ms(), backend.label)
         task = asyncio.create_task(send(call, data, TRACE_TOPIC))
         pending.add(task)
         task.add_done_callback(pending.discard)
@@ -109,7 +113,7 @@ async def entrypoint(ctx: JobContext) -> None:
         transcript = [
             (m.role, m.text_content or "") for m in session.history.messages() if m.role in ("user", "assistant")
         ]
-        return json.dumps(await summarize_call(ChatAnthropic(model=MODEL, max_tokens=1000), transcript, state, call))
+        return json.dumps(await summarize_call(make_llm(max_tokens=1000)[0], transcript, state, call))
 
     await session.start(room=ctx.room, agent=VoiceShell(call))
     await ctx.connect()

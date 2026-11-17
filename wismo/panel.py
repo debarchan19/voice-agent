@@ -51,7 +51,7 @@ def payload(state: dict, log: str | None = None) -> dict:
     }
 
 
-def voice_turn(role: str, metrics: dict, interrupted: bool, at_ms: float) -> dict:
+def voice_turn(role: str, metrics: dict, interrupted: bool, at_ms: float, backend: str | None = None) -> dict:
     """Latency of one spoken turn, from LiveKit's per-message metrics (seconds in, ms out)."""
 
     def ms(key: str) -> int | None:
@@ -61,8 +61,11 @@ def voice_turn(role: str, metrics: dict, interrupted: bool, at_ms: float) -> dic
     if role == "user":
         return {"type": "voice", "role": "user", "at": at_ms,
                 "end_of_turn": ms("end_of_turn_delay"), "transcript": ms("transcription_delay")}
-    return {"type": "voice", "role": "agent", "at": at_ms, "interrupted": interrupted,
+    data = {"type": "voice", "role": "agent", "at": at_ms, "interrupted": interrupted,
             "first_token": ms("llm_node_ttft"), "first_audio": ms("tts_node_ttfb"), "total": ms("e2e_latency")}
+    if backend:
+        data["backend"] = backend  # which LLM produced this reply
+    return data
 
 
 async def send(ctx: CallContext | None, data: dict, topic: str = STATE_TOPIC) -> None:

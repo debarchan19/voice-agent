@@ -9,6 +9,7 @@ dependencies = [
     "livekit-plugins-langchain~=1.8.9",
     "langgraph~=1.2.18",
     "langchain-anthropic~=1.7.6",
+    "langchain-openai~=1.7.4",
     "langchain-core~=1.7.0",
     "livekit-api~=1.2",
     "fastapi~=0.159",
