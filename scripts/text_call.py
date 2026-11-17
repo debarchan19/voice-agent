@@ -42,12 +42,10 @@ import db  # noqa: E402
 import email_tool  # noqa: E402
 import seed  # noqa: E402
 from fakes import FakeLiveKit  # noqa: E402
-from langchain_anthropic import ChatAnthropic  # noqa: E402
 from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
 
 from wismo import CallContext, CallTracer, build_graph, summarize_call  # noqa: E402
-
-MODEL = "claude-sonnet-4-6"  # same as agent.py
+from wismo.llm import make_llm  # noqa: E402
 
 
 @dataclass
@@ -222,11 +220,13 @@ async def main(name: str, send_email: bool, show_trace: bool, record: str | None
         emails.append(args)
         return {"ok": True, "to": args[0]}
 
-    model = CountingModel(ChatAnthropic(model=MODEL, max_tokens=400))
+    llm, backend = make_llm(max_tokens=400)  # LLM_BACKEND, default Claude
+    print(f"LLM backend: {backend.label}")
+    model = CountingModel(llm)
     ctx = CallContext(publish=publish, send_email=email_tool.send_confirmation_email if send_email else fake_email)
     graph = build_graph(model, checkpointer=InMemorySaver())
     config = {"configurable": {"thread_id": "room-1"}}
-    phone = FakeLiveKit(graph, ctx, callbacks=[CallTracer(ctx)])
+    phone = FakeLiveKit(graph, ctx, callbacks=[CallTracer(ctx, backend=backend.label)])
     greeting = phone.chat_ctx.messages()[-1].text_content
     print(f"\nAGENT: {greeting}")
     rec.speak("agent", greeting)
@@ -281,7 +281,7 @@ async def main(name: str, send_email: bool, show_trace: bool, record: str | None
 
     transcript = [(m.role, m.text_content or "") for m in phone.chat_ctx.messages() if m.role in ("user", "assistant")]
     rec.add(wrap_up=True)
-    note = await summarize_call(ChatAnthropic(model=MODEL, max_tokens=1000), transcript, state, ctx)
+    note = await summarize_call(make_llm(max_tokens=1000)[0], transcript, state, ctx)
     rec.add(summary=note)
     if record:
         rec.save(record)

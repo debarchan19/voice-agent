@@ -6,6 +6,8 @@ livekit-plugins-langchain~=1.8.9
 # The agent brain: a LangGraph graph calling the LLM through LangChain
 langgraph~=1.2.18
 langchain-anthropic~=1.7.6
+# Optional second backend: a self-hosted model behind vLLM's OpenAI-compatible API (LLM_BACKEND=local)
+langchain-openai~=1.7.4
 langchain-core~=1.7.0
 
 # Token server

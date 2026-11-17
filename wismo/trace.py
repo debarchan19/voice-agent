@@ -33,8 +33,9 @@ def now_ms() -> float:
 
 
 class CallTracer(AsyncCallbackHandler):
-    def __init__(self, ctx: CallContext) -> None:
+    def __init__(self, ctx: CallContext, backend: str | None = None) -> None:
         self.ctx = ctx
+        self.backend = backend  # e.g. "local:qwen3.6-35b-a3b", stamped on every model span
         self.parents: dict[UUID, UUID | None] = {}  # every run seen, so spans can find their nearest drawn ancestor
         self.spans: dict[UUID, dict] = {}  # open spans that the browser knows about
         self.first_token: set[UUID] = set()
@@ -89,7 +90,8 @@ class CallTracer(AsyncCallbackHandler):
     async def on_chat_model_start(self, serialized, messages, *, run_id, parent_run_id=None, metadata=None, **kw):
         self.parents[run_id] = parent_run_id
         model = (metadata or {}).get("ls_model_name") or kw.get("name") or "model"
-        await self._start(run_id, parent_run_id, "llm", model)
+        extra = {"backend": self.backend} if self.backend else {}
+        await self._start(run_id, parent_run_id, "llm", model, **extra)
 
     async def on_llm_new_token(self, token, *, run_id, **kw):
         if run_id in self.first_token or run_id not in self.spans:
