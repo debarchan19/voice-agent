@@ -38,6 +38,39 @@ Built on a LangGraph graph of three specialist agents (Greeter, Order Status, Re
 
 All customer and order data is fake and for demo purposes only.
 
+## Claude vs a self-hosted model
+
+The agent runs on Claude by default. One setting, `LLM_BACKEND=local`, points the same graph, prompts, tools and verification gate at a model you host yourself. We ran both on the same scripted callers: Claude Sonnet 4.6 over the API against **Qwen3.6-35B-A3B** (4-bit, served with vLLM on an NVIDIA DGX Spark). 29 scenarios, 36 caller turns, 5 runs each, nothing in the agent changed.
+
+![Time to first token: Claude 845 ms median, Qwen 316 ms; tool calls right 100% vs 86%](docs/comparison_chart.png)
+
+| | Claude Sonnet 4.6 | Qwen, temp 0.2 | Qwen, default temp 1.0 |
+|---|---|---|---|
+| Time to first token, median / 90th percentile | 845 / 1,279 ms | **316 / 682 ms** | 308 / 659 ms |
+| First spoken word, plain turns | 844 ms | **290 ms** | 291 ms |
+| First spoken word, turns that need a tool | **835 ms** | 985 ms | 985 ms |
+| Right tool, right arguments | **100%** (90/90) | 86% (77/90) | 63% (57/90) |
+| Right agent after a hand-off | **100%** | 96% | 84% |
+| Safety tests with no misbehaviour | **100%** | 98% | 90% |
+| Order details leaked before verification | 0 | 0 | 0 |
+| Said an action was done when no tool ran | 0 | 0 | 4 |
+| Turns passing every check | **100%** (180/180) | 90% (162/180) | 77% (138/180) |
+| Running cost per 1,000 caller turns | $9.33 (API) | under $0.01 (electricity only) | similar |
+
+![Reliability: Claude 100% on tool calls, hand-offs and safety; Qwen 86%, 96% and 98%](eval/results/20261117-160950/images/3_reliability.png)
+
+**What we found**
+
+- **Qwen starts talking much sooner, but only on plain turns.** Claude says "One moment." before a tool call; Qwen usually calls the tool in silence, so on tool turns the caller waits about a second and Qwen's first word is slower.
+- **Claude is more reliable at taking actions.** Qwen sometimes says it did something and doesn't, for example "I'm opening your ticket now" with no tool call, in 5 of 5 runs of that scenario. It is the model's own choice, not a parsing error. Sampling temperature mattered most: at the model's default of 1.0, only 63% of tool calls were right.
+- **The verification gate held.** Neither model leaked order details before verification, and the one gated tool call attempted in the main run was blocked. A gate in code can stop a tool call, but not a model from saying something false: Qwen sometimes invented an order status for an unverified caller.
+
+![The same caller turn: Claude opens the ticket, Qwen says it will and calls no tool](eval/results/20261117-160950/images/4_says_not_does.png)
+
+**Limits.** Text turns only (no speech recognition or synthesis), fake data, a small scenario set, and prompts written for Claude and not tuned for Qwen. Qwen's cost is electricity only: the hardware is not included, so it is not free. Claude Sonnet 4.6 is the model the agent already used; newer Claude models were not tested.
+
+Full detail: [findings](docs/comparison_findings.md), [side-by-side examples](docs/comparison_examples.md), [full results table](eval/results/20261117-160950/summary.md) and the raw data. To host the model yourself, see [docs/self_hosting.md](docs/self_hosting.md). To re-run the comparison: `python eval/compare_llm.py run --runs 5`.
+
 ## Setup and run
 
 **You need:** [uv](https://docs.astral.sh/uv/) (it installs Python 3.11 for you), a browser, and these API keys:
@@ -361,6 +394,9 @@ After a successful reschedule, refund request, ticket or escalation, the `confir
 | `tests/` | Database, gate, email and graph tests (scripted fake model, no network) |
 | `scripts/draw_graph.py` | Regenerates the graph diagram |
 | `scripts/text_call.py` | A real end-to-end call as text, using the real model, with automatic checks and an optional recording for the web replay |
+| `wismo/llm.py` | Picks the model: `LLM_BACKEND=anthropic` (default) or `local` (a self-hosted model behind vLLM) |
+| `scripts/start_llm.sh`, `scripts/stop_llm.sh`, `scripts/smoke_test_llm.py` | Start, stop and check the self-hosted model; see [docs/self_hosting.md](docs/self_hosting.md) |
+| `eval/` | The Claude vs self-hosted comparison: scenarios, runner, scoring, charts and the raw results |
 
 The previous version, built on LiveKit's own hand-off mechanism instead of LangGraph, is in git history at commit `2b1b370`.
 
