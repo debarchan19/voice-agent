@@ -141,6 +141,7 @@ def test_guard_flags_claims_without_a_tool(agent, text):
     ("greeter", "Got it. That's 7 2 0, 5 5 5, 0 1 4 2, right?"),
     ("order_status", "Thanks, James. Your headphones are running late. What would you like to do?"),
     ("greeter", "I can only help with deliveries, I'm afraid."),
+    ("order_status", "Let's verify your identity first."),  # asking for digits next is right, not a claim
 ])
 def test_guard_ignores_offers_questions_and_plain_talk(agent, text):
     assert unbacked_claim(agent, text, _state()) is None
@@ -261,4 +262,32 @@ def test_no_guard_without_the_fix(shop):
         assert await phone.turn("Yes please.") == "One moment. I'm opening the ticket now."
         assert not [e for e in events if e.get("type") == "guard"] and not model.script
 
+    asyncio.run(go())
+
+
+def test_guard_never_lets_the_retry_guess_verification_digits(shop):
+    async def go():
+        script = OPENING[:3] + [
+            ("order_status", say("One moment, I'm checking the tracking now.")),
+            ("order_status", call("verify_customer", order_id="ORD-60582", last_four_phone_digits="1234")),
+        ]
+        model, graph, ctx, events = _guarded_call(script)
+        phone = FakeLiveKit(graph, ctx)
+        await _to_resolution(phone, verified=False)
+        spoken = await phone.turn("Where is it?")
+        assert spoken == "One moment, I'm checking the tracking now."  # lookup claim: nothing added
+        assert [e["outcome"] for e in events if e.get("type") == "guard"] == ["rejected_verify"]
+        state = (await graph.aget_state({"configurable": {"thread_id": "room-1"}})).values
+        assert not any(m.type == "tool" and m.name == "verify_customer" for m in state["messages"])
+        assert not state.get("verify_attempts")
+    asyncio.run(go())
+
+
+def test_guard_adds_nothing_when_a_lookup_claim_retry_fails(shop):
+    async def go():
+        script = [("greeter", say("Okay, let me check that for you.")), ("greeter", say(""))]
+        model, graph, ctx, events = _guarded_call(script)
+        phone = FakeLiveKit(graph, ctx)
+        assert await phone.turn("My number is 7 2 0 5 5 5 0 1 4 2.") == "Okay, let me check that for you."
+        assert [e["outcome"] for e in events if e.get("type") == "guard"] == ["left_as_is"]
     asyncio.run(go())

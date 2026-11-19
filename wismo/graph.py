@@ -215,7 +215,7 @@ _CLAIM = re.compile(
     r"\b(?:i'?m|i am|i'?ll|i will|let me|let's|i'?ve|i have|we'?ve|we have|we'?re|we'?ll)\s+"
     r"(?:now\s+|just\s+|quickly\s+|go ahead and\s+|gone ahead and\s+|going to\s+|be\s+)?"
     r"(?:open|creat|submit|process|request|reschedul|mov|fil(?:e|ing|ed)\b|log(?:ging|ged)?\b|escalat|refund|book|"
-    r"put(?:ting)? in|pull(?:ing|ed)? up|look(?:ing|ed)? (?:up|into)|check|find|verif|transfer|connect|arrang)"
+    r"put(?:ting)? in|pull(?:ing|ed)? up|look(?:ing|ed)? (?:up|into)|check|find|transfer|connect|arrang)"
     r"|^\s*done\b|\b(?:is|has been|have been)\s+(?:now\s+)?(?:opened|created|submitted|processed|requested|"
     r"rescheduled|moved|escalated|filed|logged|booked)\b",
     re.I,
@@ -239,9 +239,12 @@ _TOPICS = [
     (re.compile(r"ticket|claim|case|report", re.I), {"create_ticket", "escalate_to_human", "transfer_to_resolution"}),
     (re.compile(r"reschedul|\bmov(?:e|ing|ed)\b|new date|delivery date", re.I), {"reschedule_delivery", "transfer_to_resolution"}),
     (re.compile(r"escalat|specialist|human|a person|someone|call you back", re.I), {"escalate_to_human", "transfer_to_resolution"}),
-    (re.compile(r"verif", re.I), {"verify_customer"}),
 ]
 _LOOKUPS = {"transfer_to_order_status", "lookup_order_by_id", "lookup_orders_by_phone", "get_tracking_events"}
+_CHANGES = {"reschedule_delivery", "request_refund", "create_ticket", "escalate_to_human"}
+_DONE = re.compile(r"^\s*done\b|\b(?:i'?ve|i have|we'?ve|we have)\s|\b(?:is|has been|have been)\s+(?:now\s+)?\w+ed\b", re.I)
+# Verification needs digits only the caller can give, so the guard never asks the model to "do" it.
+_NEVER_RETRY = {"search_web", "verify_customer"}
 _ACTION_TOOL = {"reschedule": "reschedule_delivery", "refund": "request_refund", "ticket": "create_ticket",
                 "escalation": "escalate_to_human"}
 
@@ -250,9 +253,15 @@ def _sentences(text: str) -> list[str]:
     return [x.strip() for x in re.split(r"(?<=[.!?])\s+|\n+", text) if x.strip()]
 
 
+def claims_a_change(agent: AgentName, claim: str) -> bool:
+    """The claim says something changed or is changing (ticket, refund, new date, escalation), or is done."""
+    topical = set().union(*(tools for rx, tools in _TOPICS if rx.search(claim)))
+    return bool(topical & _CHANGES & {t.name for t in TOOLS[agent]}) or bool(_DONE.search(claim))
+
+
 def unbacked_claim(agent: AgentName, reply_text: str, state: dict) -> str | None:
     """The sentence of a tool-less reply that claims an action no tool call made true, if any."""
-    own = {t.name for t in TOOLS[agent]} - {"search_web"}
+    own = {t.name for t in TOOLS[agent]} - _NEVER_RETRY
     ran = {tc["name"] for m in _this_turn(state["messages"]) if isinstance(m, AIMessage) for tc in m.tool_calls}
     last = (state.get("last_action") or {}).get("action")
     if last in _ACTION_TOOL:
@@ -260,6 +269,7 @@ def unbacked_claim(agent: AgentName, reply_text: str, state: dict) -> str | None
     sentences = _sentences(reply_text)
     if any(x.endswith("?") and _CONFIRM_Q.search(x) for x in sentences):
         return None  # describing an action and asking for a yes is exactly right
+    found: list[str] = []
     for sentence in sentences:
         if sentence.endswith("?") or _OFFER.search(sentence):
             continue
@@ -271,8 +281,9 @@ def unbacked_claim(agent: AgentName, reply_text: str, state: dict) -> str | None
         else:
             continue
         if wanted and not wanted & ran:
-            return sentence
-    return None
+            found.append(sentence)
+    # The most telling sentence: one that claims a change ("I'm opening the ticket now") over "One moment."
+    return next((x for x in found if claims_a_change(agent, x)), found[0] if found else None)
 
 
 async def _collect(bound, prompt, emit) -> AIMessage:
@@ -322,8 +333,11 @@ async def _guard(agent, state, runtime, tuning, bound, full, speak, sep):
     """Fix C: one corrective retry when a reply claims an action without a tool call.
 
     The first reply has already been spoken. The retry is buffered: its words are spoken only if it
-    makes a tool call or says something that isn't another unbacked claim; otherwise an honest
-    fallback is spoken. Any tool call it makes goes through the normal ToolNode and verification gate.
+    makes a tool call or says something that isn't another unbacked claim. If it doesn't, and the claim
+    was that something changed (a ticket, refund, new date, escalation, "done"), an honest fallback is
+    spoken; a claim to look something up is left as it was. A retry that calls verify_customer is
+    discarded (digits must come from the caller). Any tool call it makes goes through the normal
+    ToolNode and verification gate.
     """
     first = full.text or ""
     claim = unbacked_claim(agent, first, state)
@@ -336,15 +350,22 @@ async def _guard(agent, state, runtime, tuning, bound, full, speak, sep):
     try:
         retry = await _collect(bound, retry_prompt, None)
         extra, tool_calls = (retry.text or "").strip(), retry.tool_calls
+        rejected = [tc for tc in tool_calls if tc["name"] in _NEVER_RETRY]
+        if rejected:
+            extra, tool_calls = "", []
         if tool_calls or (extra and unbacked_claim(agent, extra, state) is None):
             outcome = "tool_call" if tool_calls else "text"
-        else:
+        elif claims_a_change(agent, claim):
             extra, tool_calls, outcome = GUARD_FALLBACK_SPEECH, [], "fallback"
+        else:
+            extra, tool_calls, outcome = "", [], "rejected_verify" if rejected else "left_as_is"
     except asyncio.CancelledError:
         raise
     except Exception:
         logger.exception("%s: narration guard retry failed", agent)
-        extra, tool_calls, outcome = GUARD_FALLBACK_SPEECH, [], "fallback"
+        extra, tool_calls = "", []
+        outcome = "fallback" if claims_a_change(agent, claim) else "left_as_is"
+        extra = GUARD_FALLBACK_SPEECH if outcome == "fallback" else ""
     if extra:
         sep[0] = " "
         speak(extra)
