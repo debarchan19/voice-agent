@@ -1,0 +1,65 @@
+narration guard (greeter): "I've transferred your case to an order specialist who will call you back shortly to check on your headphones." -> fallback in 650 ms
+narration guard (greeter): 'Let me check the status of your order for you.' -> left_as_is in 556 ms
+narration guard (greeter): 'Let me check the current status of your shipment and see what options might be available.' -> left_as_is in 624 ms
+narration guard (greeter): 'Let me check the current status of your order and see what we can do.' -> text in 636 ms
+29 scenarios, 36 evaluated turns, 5 run(s), arms: qwen, qwen_t1
+  run 1: 1/29 scenarios (2/290)  run 1: 2/29 scenarios (4/290)  run 1: 3/29 scenarios (6/290)  run 1: 4/29 scenarios (8/290)  run 1: 5/29 scenarios (10/290)narration guard (resolution): 'Let me check the details for order ORD 9 5 0 6 3 to see if it can be rescheduled.' -> text in 1241 ms
+  run 1: 6/29 scenarios (12/290)  run 1: 7/29 scenarios (14/290)  run 1: 8/29 scenarios (16/290)  run 1: 9/29 scenarios (18/290)narration guard (resolution): 'One moment.' -> left_as_is in 986 ms
+  run 1: 10/29 scenarios (20/290)narration guard (resolution): 'One moment.' -> left_as_is in 846 ms
+  run 1: 11/29 scenarios (22/290)narration guard (order_status): 'Let me look up your order details now.' -> left_as_is in 754 ms
+  run 1: 12/29 scenarios (24/290)  run 1: 13/29 scenarios (26/290)  run 1: 14/29 scenarios (28/290)  run 1: 15/29 scenarios (30/290)  run 1: 16/29 scenarios (32/290)  run 1: 17/29 scenarios (34/290)  run 1: 18/29 scenarios (36/290)  run 1: 19/29 scenarios (38/290)  run 1: 20/29 scenarios (40/290)  run 1: 21/29 scenarios (42/290)  run 1: 22/29 scenarios (44/290)narration guard (order_status): 'Let me pull up the full tracking history for you.' -> text in 689 ms
+  run 1: 23/29 scenarios (46/290)narration guard (greeter): 'Let me check that for you.' -> left_as_is in 727 ms
+narration guard (greeter): 'Let me look up your account using that number.' -> left_as_is in 785 ms
+  run 1: 24/29 scenarios (48/290)narration guard (greeter): 'Okay, let me check on that for you.' -> text in 619 ms
+  run 1: 25/29 scenarios (50/290)  run 1: 26/29 scenarios (52/290)  run 1: 27/29 scenarios (54/290)  run 1: 28/29 scenarios (56/290)  run 1: 29/29 scenarios (58/290)
+  run 2: 1/29 scenarios (60/290)narration guard (order_status): "Okay, let's check the status of your order ORD-51907." -> left_as_is in 636 ms
+  run 2: 2/29 scenarios (62/290)  run 2: 3/29 scenarios (64/290)narration guard (resolution): 'One moment.' -> left_as_is in 969 ms
+narration guard (resolution): 'One moment.' -> left_as_is in 916 ms
+  run 2: 4/29 scenarios (66/290)  run 2: 5/29 scenarios (68/290)narration guard (resolution): 'One moment.' -> left_as_is in 1016 ms
+  run 2: 6/29 scenarios (70/290)  run 2: 7/29 scenarios (72/290)  run 2: 8/29 scenarios (74/290)  run 2: 9/29 scenarios (76/290)narration guard (order_status): 'Let me look up ORD-48213 for you.' -> left_as_is in 748 ms
+  run 2: 10/29 scenarios (78/290)  run 2: 11/29 scenarios (80/290)  run 2: 12/29 scenarios (82/290)  run 2: 13/29 scenarios (84/290)  run 2: 14/29 scenarios (86/290)  run 2: 15/29 scenarios (88/290)  run 2: 16/29 scenarios (90/290)  run 2: 17/29 scenarios (92/290)  run 2: 18/29 scenarios (94/290)narration guard (resolution): 'One moment, please.' -> left_as_is in 641 ms
+  run 2: 19/29 scenarios (96/290)narration guard (order_status): "Please provide those digits for O R D, 6 2 8 1 4, and I'll check it right away." -> text in 1081 ms
+  run 2: 20/29 scenarios (98/290)  run 2: 21/29 scenarios (100/290)  run 2: 22/29 scenarios (102/290)  run 2: 23/29 scenarios (104/290)  run 2: 24/29 scenarios (106/290)  run 2: 25/29 scenarios (108/290)  run 2: 26/29 scenarios (110/290)  run 2: 27/29 scenarios (112/290)narration guard (greeter): 'One moment.' -> left_as_is in 896 ms
+narration guard (greeter): "To protect your privacy, I'm going to transfer you to an order specialist who can verify your identity and discuss your order." -> fallback in 855 ms
+narration guard (greeter): 'Let me check if your order is eligible for a delivery change.' -> text in 1174 ms
+  run 2: 28/29 scenarios (114/290)  run 2: 29/29 scenarios (116/290)
+  run 3: 1/29 scenarios (118/290)  run 3: 2/29 scenarios (120/290)  run 3: 3/29 scenarios (122/290)narration guard (greeter): 'One moment.' -> text in 645 ms
+  run 3: 4/29 scenarios (124/290)  run 3: 5/29 scenarios (126/290)  run 3: 6/29 scenarios (128/290)  run 3: 7/29 scenarios (130/290)  run 3: 8/29 scenarios (132/290)  run 3: 9/29 scenarios (134/290)  run 3: 10/29 scenarios (136/290)narration guard (greeter): "I've pulled up your order." -> fallback in 508 ms
+narration guard (greeter): 'Let me check the current status of your order.' -> text in 1324 ms
+narration guard (greeter): "I've checked, and the order is already showing as delivered on November 16." -> text in 798 ms
+narration guard (greeter): "I've transferred you to an order specialist who can help with your delivery issue." -> fallback in 1171 ms
+narration guard (greeter): "I'm looking into that for you now." -> text in 962 ms
+narration guard (greeter): 'Let me check on that for you.' -> text in 764 ms
+  run 3: 11/29 scenarios (138/290)  run 3: 12/29 scenarios (140/290)  run 3: 13/29 scenarios (142/290)narration guard (resolution): 'One moment.' -> left_as_is in 840 ms
+  run 3: 14/29 scenarios (144/290)narration guard (greeter): 'One moment.' -> text in 622 ms
+  run 3: 15/29 scenarios (146/290)  run 3: 16/29 scenarios (148/290)  run 3: 17/29 scenarios (150/290)  run 3: 18/29 scenarios (152/290)  run 3: 19/29 scenarios (154/290)  run 3: 20/29 scenarios (156/290)  run 3: 21/29 scenarios (158/290)  run 3: 22/29 scenarios (160/290)narration guard (order_status): "Okay, let's check on order ORD-51907 for you." -> left_as_is in 858 ms
+  run 3: 23/29 scenarios (162/290)  run 3: 24/29 scenarios (164/290)narration guard (resolution): "Okay, I'm opening the lost package ticket for order O R D, 6 0 5 8 2." -> text in 900 ms
+  run 3: 25/29 scenarios (166/290)  run 3: 26/29 scenarios (168/290)  run 3: 27/29 scenarios (170/290)narration guard (resolution): "Okay, I've moved your delivery to Friday, November 20th." -> fallback in 667 ms
+  run 3: 28/29 scenarios (172/290)  run 3: 29/29 scenarios (174/290)
+  run 4: 1/29 scenarios (176/290)  run 4: 2/29 scenarios (178/290)  run 4: 3/29 scenarios (180/290)  run 4: 4/29 scenarios (182/290)  run 4: 5/29 scenarios (184/290)  run 4: 6/29 scenarios (186/290)  run 4: 7/29 scenarios (188/290)  run 4: 8/29 scenarios (190/290)  run 4: 9/29 scenarios (192/290)  run 4: 10/29 scenarios (194/290)  run 4: 11/29 scenarios (196/290)  run 4: 12/29 scenarios (198/290)narration guard (greeter): 'Let me check the status of order ORD-51907 for you.' -> left_as_is in 865 ms
+narration guard (greeter): "I've connected you with an order specialist who can check on your headphones in order ORD 5 1 9 0 7." -> text in 577 ms
+narration guard (greeter): 'Let me check the delivery options for your order ORD 5 1 9 0 7.' -> left_as_is in 902 ms
+narration guard (greeter): "Okay, I'll check that for you." -> text in 695 ms
+  run 4: 13/29 scenarios (200/290)  run 4: 14/29 scenarios (202/290)  run 4: 15/29 scenarios (204/290)  run 4: 16/29 scenarios (206/290)narration guard (order_status): "Let's check the delivery status of order ORD-51907 for you." -> left_as_is in 555 ms
+  run 4: 17/29 scenarios (208/290)narration guard (resolution): 'Let me check on your other order, ORD 9 5 0 6 3, and get it rescheduled for this Friday, November 20, 2026.' -> fallback in 988 ms
+  run 4: 18/29 scenarios (210/290)narration guard (order_status): "Let me check your order and see if we can find an easier way to confirm you're part of the account." -> text in 1052 ms
+  run 4: 19/29 scenarios (212/290)  run 4: 20/29 scenarios (214/290)  run 4: 21/29 scenarios (216/290)  run 4: 22/29 scenarios (218/290)  run 4: 23/29 scenarios (220/290)narration guard (greeter): 'Let me check that for you.' -> left_as_is in 980 ms
+  run 4: 24/29 scenarios (222/290)narration guard (resolution): 'The delivery for order ORD-51907 has been rescheduled to Friday, November 20, 2026.' -> fallback in 765 ms
+narration guard (resolution): "I'll reschedule your delivery for Friday, November 20, 2026." -> text in 813 ms
+narration guard (resolution): 'One moment.' -> left_as_is in 853 ms
+  run 4: 25/29 scenarios (224/290)  run 4: 26/29 scenarios (226/290)  run 4: 27/29 scenarios (228/290)  run 4: 28/29 scenarios (230/290)  run 4: 29/29 scenarios (232/290)
+  run 5: 1/29 scenarios (234/290)  run 5: 2/29 scenarios (236/290)  run 5: 3/29 scenarios (238/290)  run 5: 4/29 scenarios (240/290)  run 5: 5/29 scenarios (242/290)narration guard (resolution): 'Let me check the status of order ORD 9 5 0 6 3 to see if it can be rescheduled.' -> fallback in 589 ms
+  run 5: 6/29 scenarios (244/290)  run 5: 7/29 scenarios (246/290)  run 5: 8/29 scenarios (248/290)narration guard (greeter): 'One moment.' -> left_as_is in 732 ms
+  run 5: 9/29 scenarios (250/290)  run 5: 10/29 scenarios (252/290)  run 5: 11/29 scenarios (254/290)  run 5: 12/29 scenarios (256/290)  run 5: 13/29 scenarios (258/290)  run 5: 14/29 scenarios (260/290)  run 5: 15/29 scenarios (262/290)narration guard (greeter): 'One moment.' -> text in 571 ms
+narration guard (greeter): 'Let me pull up that order for you.' -> left_as_is in 735 ms
+  run 5: 16/29 scenarios (264/290)  run 5: 17/29 scenarios (266/290)  run 5: 18/29 scenarios (268/290)  run 5: 19/29 scenarios (270/290)  run 5: 20/29 scenarios (272/290)narration guard (greeter): 'Okay, let me pull up your account.' -> text in 652 ms
+  run 5: 21/29 scenarios (274/290)  run 5: 22/29 scenarios (276/290)  run 5: 23/29 scenarios (278/290)  run 5: 24/29 scenarios (280/290)  run 5: 25/29 scenarios (282/290)  run 5: 26/29 scenarios (284/290)  run 5: 27/29 scenarios (286/290)narration guard (resolution): 'One moment.' -> left_as_is in 729 ms
+narration guard (resolution): 'Your delivery has been rescheduled to Friday, November 20th, and the confirmation email has been sent.' -> fallback in 634 ms
+  run 5: 28/29 scenarios (288/290)narration guard (greeter): 'One moment.' -> left_as_is in 960 ms
+narration guard (greeter): 'One moment.' -> text in 978 ms
+narration guard (greeter): "I'm going to transfer you to an order specialist who can look into the details and get this sorted for you." -> fallback in 599 ms
+narration guard (greeter): "I'll transfer you to an order specialist who can look into your order and provide an update." -> fallback in 568 ms
+  run 5: 29/29 scenarios (290/290)
+
+Raw results: eval/results/qwen_fixes/D_parser_qwen3_xml
+Summary: eval/results/qwen_fixes/D_parser_qwen3_xml/summary.md

@@ -142,3 +142,9 @@ experiments:
     dir: eval/results/qwen_fixes/D_sampling
     main: qwen_t1_k5
     verdict: "Worst arm (85% tool accuracy). top_k 5 hurts at 1.0"
+  - id: D-parser
+    change: "Tool-call parser qwen3_xml instead of qwen3_coder (same kept fixes, server restarted)"
+    dir: eval/results/qwen_fixes/D_parser_qwen3_xml
+    main: qwen
+    hot: qwen_t1
+    verdict: "**Rejected: broken.** 0 of 60 tool calls parsed; the model's calls came out as spoken text (181 turns spoke tool markup). qwen3_coder stays. The vLLM 0.28.0 source maps both names to one class, yet behaviour differs, so the name matters at runtime"

@@ -99,3 +99,16 @@ The agent's real prompts are longer; see `eval/compare_llm.py` for realistic num
 - **Known failure modes of the model in this agent:** the greeter sometimes never hands off after the
   order number is confirmed, and sometimes answers an unverified caller with made-up order details
   instead of calling `verify_customer`.
+
+## Qwen-only fixes and sampling settings (2026-11-19)
+
+The local backend now applies a measured set of prompt and runtime fixes by default (`wismo/tuning.py`; Claude never
+gets them). Results and the experiments that were dropped are in [qwen_fix_log.md](qwen_fix_log.md).
+
+| Variable | Effect |
+|---|---|
+| `LOCAL_LLM_FIXES=none` | Qwen exactly as before the fixes (the baseline) |
+| `LOCAL_LLM_FIXES=act_first,narration_guard` | any explicit set; names are in `wismo/tuning.py` |
+| `LOCAL_LLM_TOP_P`, `LOCAL_LLM_TOP_K` | optional sampling caps; unset = server defaults (no change was better than 0.2 / defaults) |
+
+**Do not use `TOOL_PARSER=qwen3_xml`** with the fixes or without: every tool call came out as spoken text (0 of 60 parsed).
