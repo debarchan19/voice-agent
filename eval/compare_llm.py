@@ -96,6 +96,11 @@ ARMS = {
                     "env": {"LOCAL_LLM_TEMPERATURE": "1.0", "LOCAL_LLM_TOP_P": "0.8"}},
     "qwen_t1_k5": {"label": "Qwen3.6-35B-A3B, temp 1.0, top_k 5", "backend": "local",
                    "env": {"LOCAL_LLM_TEMPERATURE": "1.0", "LOCAL_LLM_TOP_K": "5"}},
+    # "before" arms for side-by-side runs: always the baseline prompt, whatever --fixes says
+    "qwen_base": {"label": "Qwen3.6-35B-A3B before fixes, temp 0.2", "backend": "local",
+                  "env": {"LOCAL_LLM_TEMPERATURE": "0.2"}, "fixes": "none"},
+    "qwen_base_t1": {"label": "Qwen3.6-35B-A3B before fixes, temp 1.0", "backend": "local",
+                     "env": {"LOCAL_LLM_TEMPERATURE": "1.0"}, "fixes": "none"},
     # the upstream Qwen3.6 model card's recommendation for non-thinking mode (huggingface.co/Qwen/Qwen3.6-35B-A3B)
     "qwen_vendor": {"label": "Qwen3.6-35B-A3B, card's non-thinking settings (0.7, top_p 0.8, top_k 20, presence 1.5)",
                     "backend": "local", "env": {"LOCAL_LLM_TEMPERATURE": "0.7", "LOCAL_LLM_TOP_P": "0.8", "LOCAL_LLM_TOP_K": "20"},
@@ -409,7 +414,9 @@ async def run_scenario(sc: dict, arm: str, run: int, llm, rec: Recorder, turns_f
 
 def arm_tuning(arm: str, fixes: str | None) -> Tuning:
     """Claude never gets fixes. Local arms get --fixes ("none" when not given, so old commands still mean the baseline)."""
-    return NO_TUNING if ARMS[arm]["backend"] == "anthropic" else parse_fixes(fixes or "none")
+    if ARMS[arm]["backend"] == "anthropic":
+        return NO_TUNING
+    return parse_fixes(ARMS[arm].get("fixes") or fixes or "none")
 
 
 def make_arm_model(arm: str):

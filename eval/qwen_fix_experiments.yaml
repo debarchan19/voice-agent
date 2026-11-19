@@ -80,3 +80,65 @@ experiments:
     main: qwen
     hot: qwen_t1
     verdict: "Answers B3's question: the plain-string schema alone removes the 'None' values (5 to 0 at 0.2, 3 to 0 at 1.0, against B1x). So does A2's prompt rule. Splitting the tool in two isn't needed"
+  - id: C
+    change: "+ Runtime narration guard, first version: a reply claiming an action with no matching tool call gets one corrective retry, else an honest fallback"
+    dir: eval/results/qwen_fixes/C_narration_guard
+    main: qwen
+    hot: qwen_t1
+    verdict: "**Dropped as built.** Fired on 4 dev turns at 0.2 and 13 at 1.0 (retry median ~700 ms). At 1.0 it rescued 6 narrations (tool accuracy 83% to 90%), but its retry once produced verify_customer with invented digits (failed, gate held), and false positives such as 'Let's verify your identity' led to the fallback apology 5 times. The 5/5 unexpected reschedules at 0.2 are not the guard's: it never fired on those turns"
+  - id: C2
+    change: "+ Narration guard v2: never retries verification (digits must come from the caller); the apology only after a claimed change ('done', ticket, refund, new date), never after 'let me check'"
+    dir: eval/results/qwen_fixes/C2_narration_guard_v2
+    main: qwen
+    hot: qwen_t1
+    verdict: "**Kept.** Against the 10-run reference (A4+B1) at 0.2: tool 98% vs 95%, hand-offs 100%, safety-category clean 23/25 vs 22/25 equivalent, attempted misbehaviours 2 vs 3.5 per 5 runs, acted without a yes unchanged. Fired on 4 dev turns at 0.2 and 8 at 1.0, retry median ~650 ms (after the first reply has streamed). Rescued 'the lost package ticket is created' into a real create_ticket (1.0); one honest fallback, no invented digits"
+  - id: D-t0
+    change: "Sampling (all with the kept fixes incl. guard): temperature 0.0"
+    dir: eval/results/qwen_fixes/D_sampling
+    main: qwen_t0
+    verdict: "Not better than 0.2 on dev; time to first token unchanged"
+  - id: D-t01
+    change: "Sampling (all with the kept fixes incl. guard): temperature 0.1"
+    dir: eval/results/qwen_fixes/D_sampling
+    main: qwen_t01
+    verdict: "Not better than 0.2 on dev; time to first token unchanged"
+  - id: D-t02
+    change: "Sampling (all with the kept fixes incl. guard): temperature 0.2 (the current default)"
+    dir: eval/results/qwen_fixes/D_sampling
+    main: qwen
+    verdict: "**Kept: 0.2.** Best tool accuracy (100%) and equal-best everything else; the others are within 1-5 turns of it, which is the noise floor"
+  - id: D-t03
+    change: "Sampling (all with the kept fixes incl. guard): temperature 0.3"
+    dir: eval/results/qwen_fixes/D_sampling
+    main: qwen_t03
+    verdict: "Not better than 0.2 on dev; time to first token unchanged"
+  - id: D-p08
+    change: "Sampling (all with the kept fixes incl. guard): temperature 0.2, top_p 0.8"
+    dir: eval/results/qwen_fixes/D_sampling
+    main: qwen_p08
+    verdict: "Not better than 0.2 on dev; time to first token unchanged"
+  - id: D-k5
+    change: "Sampling (all with the kept fixes incl. guard): temperature 0.2, top_k 5"
+    dir: eval/results/qwen_fixes/D_sampling
+    main: qwen_k5
+    verdict: "Not better than 0.2 on dev; time to first token unchanged"
+  - id: D-vendor
+    change: "Sampling (all with the kept fixes incl. guard): the model card's non-thinking settings: temp 0.7, top_p 0.8, top_k 20, presence penalty 1.5"
+    dir: eval/results/qwen_fixes/D_sampling
+    main: qwen_vendor
+    verdict: "Not better than 0.2 on dev; time to first token unchanged"
+  - id: D-t1
+    change: "Sampling (all with the kept fixes incl. guard): temperature 1.0 (server default)"
+    dir: eval/results/qwen_fixes/D_sampling
+    main: qwen_t1
+    verdict: "Not better than 0.2 on dev; time to first token unchanged"
+  - id: D-t1_p08
+    change: "Sampling (all with the kept fixes incl. guard): temperature 1.0, top_p 0.8"
+    dir: eval/results/qwen_fixes/D_sampling
+    main: qwen_t1_p08
+    verdict: "Not better than 0.2 on dev; time to first token unchanged"
+  - id: D-t1_k5
+    change: "Sampling (all with the kept fixes incl. guard): temperature 1.0, top_k 5"
+    dir: eval/results/qwen_fixes/D_sampling
+    main: qwen_t1_k5
+    verdict: "Worst arm (85% tool accuracy). top_k 5 hurts at 1.0"
