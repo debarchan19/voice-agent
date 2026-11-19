@@ -327,3 +327,54 @@ def test_send_email_without_credentials(monkeypatch):
     result = asyncio.run(email_tool.send_confirmation_email(
         "maya@example.com", DELAYED_WEATHER, "Maya Patel", "refund", {}))
     assert result["ok"] is False
+
+
+# --- B1: placeholder strings for optional arguments ------------------------------
+
+from fakes import invoke_tool  # noqa: E402
+
+from wismo.state import CallContext  # noqa: E402
+
+
+@pytest.fixture
+def shop(tmp_path, monkeypatch):
+    path = str(tmp_path / "shop.db")
+    seed.seed(path)
+    monkeypatch.setattr(db, "DB_PATH", path)
+    return path
+
+
+@pytest.mark.parametrize("junk", ["None", "null", "NULL", "", "  ", "undefined"])
+def test_placeholder_order_id_is_treated_as_missing(shop, junk, caplog):
+    msg, state = asyncio.run(invoke_tool("transfer_to_order_status", {"order_id": junk, "phone": "720-555-0142"}))
+    assert msg.content == "Transferred."
+    assert state["active_agent"] == "order_status" and state["phone"] == "7205550142"
+    assert not state.get("order_id")
+    assert "treating order_id=" in caplog.text
+
+
+def test_placeholders_everywhere_still_ask_for_a_number(shop):
+    msg, state = asyncio.run(invoke_tool("transfer_to_order_status", {"order_id": "None", "phone": "null"}))
+    assert "order number or the phone number" in msg.content
+    assert state.get("active_agent") != "order_status"
+
+
+def test_a_real_value_is_untouched(shop, caplog):
+    msg, state = asyncio.run(invoke_tool("transfer_to_order_status", {"order_id": "ORD-48213", "phone": "None"}))
+    assert state["order_id"] == "ORD-48213" and state["verified"] is False
+    assert "treating phone=" in caplog.text and "treating order_id" not in caplog.text
+
+
+@pytest.mark.parametrize("tool, args", [
+    ("reschedule_delivery", {"order_id": "None", "new_date": "2030-01-04"}),
+    ("request_refund", {"order_id": "None", "reason": "late"}),
+    ("create_ticket", {"order_id": "null", "type": "lost_package", "notes": "x"}),
+    ("get_tracking_events", {"order_id": "None"}),
+])
+def test_placeholders_do_not_loosen_the_gate(shop, tool, args):
+    # Unverified: refused as before.
+    msg, _ = asyncio.run(invoke_tool(tool, args, state={"order_id": "ORD-48213", "verified": False}))
+    assert msg.status == "error" and "isn't verified" in msg.content
+    # Verified for one order: a placeholder order_id is not "the verified order", so it is still refused.
+    msg, state = asyncio.run(invoke_tool(tool, args, state={"order_id": "ORD-48213", "verified": True}, ctx=CallContext()))
+    assert msg.status == "error" and not state.get("last_action")

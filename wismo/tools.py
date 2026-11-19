@@ -58,6 +58,21 @@ def require_verified(state: dict, order_id: str | None = None) -> str:
     return state["order_id"]
 
 
+# What some models send for an argument they don't have, instead of leaving it out (Qwen sends the string
+# "None": its tool-call format has no way to say "no value"). Only OPTIONAL arguments are cleaned this way;
+# a required argument such as the order_id of a gated tool still fails its own checks, so the verification
+# gate sees exactly what it saw before.
+NO_VALUE = {"", "none", "null", "undefined"}
+
+
+def given(tool: str, arg: str, value: str | None) -> str | None:
+    """An optional argument's value, or None when the model sent a placeholder instead of leaving it out."""
+    if value is not None and str(value).strip().lower() in NO_VALUE:
+        logger.warning("%s: treating %s=%r as missing", tool, arg, value)
+        return None
+    return value
+
+
 def _reply(rt: Rt, text: str, **update: Any) -> Command:
     """A tool result and its state update in one atomic Command."""
     return Command(update={**update, "messages": [ToolMessage(text, tool_call_id=rt.tool_call_id)]})
@@ -139,6 +154,8 @@ async def transfer_to_order_status(runtime: Rt, order_id: str | None = None, pho
     """
     s, ctx = runtime.state, runtime.context
     update: dict[str, Any] = {"active_agent": "order_status"}
+    order_id = given("transfer_to_order_status", "order_id", order_id)
+    phone = given("transfer_to_order_status", "phone", phone)
 
     if order_id:
         oid = db.normalize_order_id(order_id)

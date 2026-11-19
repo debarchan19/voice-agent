@@ -67,3 +67,60 @@ NOTE_EMAIL_FAILED = (
 )
 NOTE_EARLIER_ACTION = "Before the caller cut in, you already completed this: {action}. Don't do it again."
 NOTE_EARLIER_EMAIL = "The confirmation email for that action did go through. Tell the caller it's on its way."
+
+
+# --------------------------------------------------------------------------- self-hosted model only
+# Added to the prompt only when the backend's Tuning enables them (wismo/tuning.py). Claude never
+# sees any of this. Each block is one measured experiment in docs/qwen_fix_log.md. The examples use
+# an order number, a phone number and wording that appear nowhere in eval/scenarios.yaml or the seed.
+
+QWEN_TOOL_RULES: dict[str, str] = {
+    "act_first": (
+        "- When you decide to do something, call the tool in this same reply, and describe the result only "
+        "after the tool has returned. Never say you're doing something, like opening a ticket, requesting a "
+        "refund, changing a date or pulling up an account, unless the tool call is in this same reply."
+    ),
+    "wait_for_yes": (
+        "- Acting needs a yes. Hand off with an order or phone number only after the caller confirmed the number "
+        "you read back. Call reschedule_delivery, request_refund or create_ticket only after the caller said yes to "
+        "the exact thing you described, such as the date. A request is not a yes to the details: describe them and "
+        "ask first."
+    ),
+    "omit_empty_args": (
+        "- If you don't have a value for an optional tool argument, leave that argument out completely. "
+        "Never send the text None, null or an empty string as a value."
+    ),
+    "filler_first": '- Say "One moment." immediately before every tool call, in the same reply as the call.',
+    "no_unverified_status": (
+        "- Never state an order's status, location or delivery date unless a tool gave it to you during this "
+        "call. Until verify_customer succeeds you know nothing about the order, so don't guess."
+    ),
+}
+QWEN_TOOL_RULES_HEADER = "How you use tools:"
+
+QWEN_EXAMPLES: dict[AgentName, str] = {
+    "greeter": (
+        "Example of a correct turn (a different caller): you read back the phone number 3 0 3, 5 5 5, 0 1 9 8. "
+        'Caller: "Yep, that\'s it." You say "One moment." and, in the same reply, call transfer_to_order_status '
+        'with phone "3035550198" and no order_id argument at all. Wrong: saying you\'ll pull up their account '
+        'without making the call, or sending order_id "None".'
+    ),
+    "resolution": (
+        "Example of a correct exchange (a different caller, order ORD-70315). You: \"I can open a damaged item "
+        'ticket so the team can sort it out. Shall I go ahead?" (no tool call yet: there is no yes). '
+        'Caller: "Sure, do it." You say "One moment." and, in the same reply, call create_ticket with '
+        'order_id "ORD-70315", type "damaged" and a one-sentence note; after it returns, give the ticket number. '
+        'Wrong: "I\'m opening that ticket for you now." with no tool call, because then nothing is opened.'
+    ),
+}
+
+# The narration guard's one corrective retry (wismo/graph.py). {said} is what the caller already heard.
+GUARD_RETRY_NOTE = (
+    "Correction: you just told the caller '{said}', but you made no tool call, so nothing has happened yet. "
+    "If the caller has clearly agreed and you have every value you need from them, call the right tool now, "
+    "with no words before it. Otherwise ask the one question you need. Never make up a value the caller "
+    "didn't give you, never call a tool that changes something without the caller's clear yes, and don't "
+    "repeat what you already said."
+)
+# Spoken if the retry still claims an action without a tool call: honest, and hands the decision back.
+GUARD_FALLBACK_SPEECH = "Sorry, I haven't actually done that yet. Shall I go ahead?"

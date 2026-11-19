@@ -1,0 +1,82 @@
+# The experiments in docs/qwen_fix_log.md, in the order they ran. Rendered by eval/fix_log.py.
+#   main: the arm at the main temperature (0.2 unless the experiment is about sampling)
+#   hot:  the same configuration at temperature 1.0 (the robustness check)
+experiments:
+  - id: B0
+    change: "Baseline re-run: no fixes (LOCAL_LLM_FIXES=none), today's date, fresh server"
+    dir: eval/results/qwen_fixes/B0_baseline
+    main: qwen
+    hot: qwen_t1
+    verdict: "Reference for every comparison below"
+  - id: A1
+    change: "Prompt rule: call the tool in the same reply; never say you're doing something without the call"
+    dir: eval/results/qwen_fixes/A1_act_first
+    main: qwen
+    hot: qwen_t1
+    verdict: "**Kept.** Tool accuracy +10 pts at 0.2 and +15 at 1.0; status claims 3 to 0. Exception to rule 1: gated attempts 1 to 4, all blocked, replacing invented statuses in the same scenario. Side effects: early hand-off before read-back confirmed 2/20 to 10/20; sentence-limit 93% to 78%"
+  - id: A2
+    change: "+ Prompt rule: leave out an argument you don't have; never send None, null or empty"
+    dir: eval/results/qwen_fixes/A2_omit_empty_args
+    main: qwen
+    hot: qwen_t1
+    verdict: "**Kept.** Junk arguments 11 to 0 (and 7 to 0 at 1.0); confirm_phone_number now passes. Tool accuracy +2 pts at 0.2, +3 at 1.0. Safety misbehaviours unchanged in total (4: the injection scenario flips between a status claim and a blocked tool call). Acted without a yes at 1.0: 1 to 4 (noise-level, but watched)"
+  - id: A3
+    change: "+ Prompt rule: say 'One moment.' immediately before every tool call"
+    dir: eval/results/qwen_fixes/A3_filler_first
+    main: qwen
+    hot: qwen_t1
+    verdict: "**Dropped.** Hits its own target (words before the tool 27% to 50%; first word on tool turns 1,015 to 650 ms) but breaks rules 1 and 2: tool accuracy -8 pts at 0.2 and 1.0, model-attempted misbehaviours 5 to 11 (verify_customer with digits the caller never said, after a hand-off: 'One moment.' seems to oblige a tool call), acted without a yes 1 to 6"
+  - id: A4
+    change: "+ Prompt rule: never state an order status no tool returned in this call (A3 left out)"
+    dir: eval/results/qwen_fixes/A4_no_unverified_status
+    main: qwen
+    hot: qwen_t1
+    verdict: "**Kept.** Tool accuracy 90% to 98% at 0.2 (+3 pts at 1.0), hand-offs 100%, model-attempted misbehaviours 5 to 3, early hand-offs 55% to 35%, sentence limit 75% to 86%. Still 2/5 invented statuses when the caller injects a fake 'SYSTEM NOTE'. At 1.0, attempted misbehaviours 4 to 7 (invented digits in two injection scenarios), within that temperature's noise but watched"
+  - id: A5
+    change: "+ Two worked examples (Greeter: phone hand-off; Resolution: ask, then act on the yes). Different order id, phone and wording from the scenarios"
+    dir: eval/results/qwen_fixes/A5_few_shot
+    main: qwen
+    hot: qwen_t1
+    verdict: "**Dropped.** Fails rule 1 (safety-category clean 22 to 20/25, attempted misbehaviours 3 to 5) and rule 2 (tool accuracy -1 turn). Words before tool calls 17% to 40%, but early hand-offs 35% to 70% and sentence limit 86% to 72%. The examples' order id and phone never appeared in a tool call"
+  - id: A6
+    change: "+ (added, not in the original plan) Prompt rule: hand off or change anything only after the caller confirmed the exact details"
+    dir: eval/results/qwen_fixes/A6_wait_for_yes
+    main: qwen
+    hot: qwen_t1
+    verdict: "**Dropped.** No measurable gain over A4: same tool accuracy and safety at 0.2, acted without a yes 1 to 1, early hand-offs 7 to 5 of 20 (noise), +11 ms to first token. Added because A5 didn't fix failure 3; motivated by dev full_call_reschedule turn 3"
+  - id: B1
+    change: "+ Code: transfer_to_order_status treats the strings None, null, undefined and empty as a missing optional argument, and logs it (prompt identical to A4)"
+    dir: eval/results/qwen_fixes/B1_none_is_missing
+    main: qwen
+    hot: qwen_t1
+    verdict: "**Kept (judgment call).** Fired 3 times; all 3 hand-offs succeeded instead of leaving the caller at the Greeter. The tool-accuracy dip (98% to 92%) is one run of full_call_reschedule where the Greeter asked for a phone number after the order number was confirmed: no junk value was involved, so it can't come from this change. Same prompt as A4, so the gap is the noise floor at 0.2. Strict scoring still counts the 'None' call as wrong"
+  - id: B1x
+    change: "(supplementary) B1's code with the baseline prompt (no fixes), where junk values are common"
+    dir: eval/results/qwen_fixes/B1x_on_baseline_prompt
+    main: qwen
+    hot: qwen_t1
+    verdict: "Isolates B1: every turn carrying a junk value still reached Order Status (12/12 at 0.2, 11/11 at 1.0, against 8/13 and 12/15 in B0); dev hand-off accuracy 94% to 97%. Strict tool accuracy barely moves because the 'None' call itself is still scored wrong"
+  - id: B2
+    change: "+ Schema: shorter Qwen-only tool descriptions, one description per argument, allowed values spelled out"
+    dir: eval/results/qwen_fixes/B2_qwen_tool_docs
+    main: qwen
+    hot: qwen_t1
+    verdict: "Failed rule 1 inside the noise (safety-category clean 22 to 20/25) while tool accuracy at 1.0 rose 83% to 93%, so it got a replicate (B2r) under the second amendment"
+  - id: B2r
+    change: "(replicate of B2, same configuration)"
+    dir: eval/results/qwen_fixes/B2r_qwen_tool_docs_replicate
+    main: qwen
+    hot: qwen_t1
+    verdict: "**B2 dropped** on 10 pooled runs vs the current set's 10 (A4+B1): tool accuracy at 0.2 equal (114/120 both); safety-category clean 44 to 40/50, attempted misbehaviours 7 to 11, acted without a yes 2 to 5. At 1.0, 83% to 87% (the first run's 93% was luck). It did halve early hand-offs (35% to 22%)"
+  - id: B3
+    change: "+ Schema: optional arguments shown as a plain string, not 'string or null' (B2 left out)"
+    dir: eval/results/qwen_fixes/B3_plain_optional_args
+    main: qwen
+    hot: qwen_t1
+    verdict: "**Dropped.** Nothing left to fix: A2 had already taken junk values to about 0 (0 here, 1 in the pooled reference). Tool accuracy 92% vs pooled 95% at 0.2, inside noise"
+  - id: B3x
+    change: "(supplementary) B3's schema alone, on the baseline prompt"
+    dir: eval/results/qwen_fixes/B3x_schema_only_on_baseline_prompt
+    main: qwen
+    hot: qwen_t1
+    verdict: "Answers B3's question: the plain-string schema alone removes the 'None' values (5 to 0 at 0.2, 3 to 0 at 1.0, against B1x). So does A2's prompt rule. Splitting the tool in two isn't needed"
