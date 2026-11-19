@@ -7,6 +7,11 @@ Nothing here edits the agent: the model is wrapped from the outside to time it.
     python eval/compare_llm.py run --runs 5                  # all arms, writes eval/results/<timestamp>/
     python eval/compare_llm.py run --runs 1 --arms claude    # a pilot
     python eval/compare_llm.py summarize eval/results/<dir>  # re-score and redraw from the raw files
+    python eval/compare_llm.py run --arms qwen,qwen_t1 --fixes act_first   # Qwen with one fix (wismo/tuning.py)
+
+--fixes applies to the local (Qwen) arms only: "none" is the baseline prompt, "default" the measured
+best set (wismo/tuning.py LOCAL_DEFAULT_FIXES), or a comma-separated list. Claude never gets fixes.
+Every summary also reports the dev and held-out scenario sets (eval/split.yaml) separately.
 
 Arms:
     claude    Claude Sonnet 4.6 exactly as agent.py configures it (API default sampling, no thinking)
@@ -31,6 +36,7 @@ import os
 import random
 import re
 import statistics
+from collections import Counter
 import subprocess
 import sys
 import tempfile
@@ -65,8 +71,10 @@ from livekit.agents.utils import shortuuid  # noqa: E402
 from wismo import GREETING, CallContext, CallTracer, build_graph  # noqa: E402
 from wismo.llm import CLAUDE_MODEL, DEFAULT_LOCAL_URL, make_llm  # noqa: E402
 from wismo.prompts import FALLBACK_SPEECH  # noqa: E402
+from wismo.tuning import FIXES, NO_TUNING, Tuning, parse_fixes  # noqa: E402
 
 SCENARIOS = ROOT / "eval" / "scenarios.yaml"
+SPLIT = ROOT / "eval" / "split.yaml"
 TURN_TIMEOUT_S = 120
 
 ARMS = {
@@ -77,6 +85,21 @@ ARMS = {
     "qwen_t0": {"label": "Qwen3.6-35B-A3B, temp 0", "backend": "local", "env": {"LOCAL_LLM_TEMPERATURE": "0"}},
     "qwen_think": {"label": "Qwen3.6-35B-A3B, thinking on", "backend": "local", "env": {"LOCAL_LLM_TEMPERATURE": "0.2"},
                    "think": True, "max_tokens": 2000},
+    # sampling experiments (fix log, step D). top_p/top_k unset = the server's defaults (0.95, 20)
+    "qwen_t01": {"label": "Qwen3.6-35B-A3B, temp 0.1", "backend": "local", "env": {"LOCAL_LLM_TEMPERATURE": "0.1"}},
+    "qwen_t03": {"label": "Qwen3.6-35B-A3B, temp 0.3", "backend": "local", "env": {"LOCAL_LLM_TEMPERATURE": "0.3"}},
+    "qwen_p08": {"label": "Qwen3.6-35B-A3B, temp 0.2, top_p 0.8", "backend": "local",
+                 "env": {"LOCAL_LLM_TEMPERATURE": "0.2", "LOCAL_LLM_TOP_P": "0.8"}},
+    "qwen_k5": {"label": "Qwen3.6-35B-A3B, temp 0.2, top_k 5", "backend": "local",
+                "env": {"LOCAL_LLM_TEMPERATURE": "0.2", "LOCAL_LLM_TOP_K": "5"}},
+    "qwen_t1_p08": {"label": "Qwen3.6-35B-A3B, temp 1.0, top_p 0.8", "backend": "local",
+                    "env": {"LOCAL_LLM_TEMPERATURE": "1.0", "LOCAL_LLM_TOP_P": "0.8"}},
+    "qwen_t1_k5": {"label": "Qwen3.6-35B-A3B, temp 1.0, top_k 5", "backend": "local",
+                   "env": {"LOCAL_LLM_TEMPERATURE": "1.0", "LOCAL_LLM_TOP_K": "5"}},
+    # the upstream Qwen3.6 model card's recommendation for non-thinking mode (huggingface.co/Qwen/Qwen3.6-35B-A3B)
+    "qwen_vendor": {"label": "Qwen3.6-35B-A3B, card's non-thinking settings (0.7, top_p 0.8, top_k 20, presence 1.5)",
+                    "backend": "local", "env": {"LOCAL_LLM_TEMPERATURE": "0.7", "LOCAL_LLM_TOP_P": "0.8", "LOCAL_LLM_TOP_K": "20"},
+                    "presence_penalty": 1.5},
 }
 
 # Claude Sonnet 4.6 standard API price, USD per million tokens. Checked on the date below.
@@ -167,6 +190,11 @@ def load_scenarios(path: Path = SCENARIOS) -> dict:
             t["expect"] = t.get("expect") or {}
         out.append({**sc, "order": order, "setup": setup, "turns": turns})
     return {"orders": spec["orders"], "scenarios": out}
+
+
+def load_split(path: Path = SPLIT) -> set[str]:
+    """Held-out scenario ids. Everything else is dev."""
+    return set(yaml.safe_load(path.read_text())["holdout"]) if path.exists() else set()
 
 
 def setup_script(setup: list) -> list:
@@ -329,16 +357,19 @@ def snapshot(state: dict) -> dict:
     return snap
 
 
-async def run_scenario(sc: dict, arm: str, run: int, llm, rec: Recorder, turns_file) -> None:
+async def run_scenario(sc: dict, arm: str, run: int, llm, rec: Recorder, turns_file, tuning: Tuning = NO_TUNING) -> None:
     path = os.path.join(tempfile.mkdtemp(prefix="eval-db-"), "shop.db")
     seed.seed(path)
     db.DB_PATH = path
 
     events: list[dict] = []
+    guards: list[dict] = []
 
     async def publish(payload):
         if payload.get("type") == "gate":
             events.append(payload)
+        elif payload.get("type") == "guard":  # the narration guard (fix C) fired
+            guards.append(payload)
 
     async def fake_email(to, order_id, name, action, details):
         return {"ok": True, "to": to}
@@ -346,7 +377,7 @@ async def run_scenario(sc: dict, arm: str, run: int, llm, rec: Recorder, turns_f
     ctx = CallContext(publish=publish, send_email=fake_email)
     scripted = ScriptedModel(setup_script(sc["setup"]))
     model = SwitchModel(scripted, TimedModel(llm, rec))
-    graph = build_graph(model, checkpointer=InMemorySaver())
+    graph = build_graph(model, checkpointer=InMemorySaver(), tuning=tuning)
     phone = Phone(graph, ctx, callbacks=[CallTracer(ctx, backend=ARMS[arm]["label"])])
     config = {"configurable": {"thread_id": "room-1"}}
 
@@ -360,7 +391,7 @@ async def run_scenario(sc: dict, arm: str, run: int, llm, rec: Recorder, turns_f
     for i, turn in enumerate(sc["turns"]):
         before = snapshot((await graph.aget_state(config)).values)
         rec.ctx = {"arm": arm, "run": run, "scenario": sc["id"], "turn": i}
-        first_call, first_event, wall0 = len(rec.calls), len(events), time.time()
+        first_call, first_event, first_guard, wall0 = len(rec.calls), len(events), len(guards), time.time()
         result = await phone.timed_turn(turn["caller"])
         after = snapshot((await graph.aget_state(config)).values)
         callers.append(turn["caller"])
@@ -371,8 +402,14 @@ async def run_scenario(sc: dict, arm: str, run: int, llm, rec: Recorder, turns_f
             "state_before": before, "state_after": after,
             "calls": [{k: c[k] for k in ("agent", "text", "tool_calls", "invalid_tool_calls", "error")} for c in rec.calls[first_call:]],
             "gate_blocks": events[first_event:],
+            "guard_events": guards[first_guard:],
         }) + "\n")
         turns_file.flush()
+
+
+def arm_tuning(arm: str, fixes: str | None) -> Tuning:
+    """Claude never gets fixes. Local arms get --fixes ("none" when not given, so old commands still mean the baseline)."""
+    return NO_TUNING if ARMS[arm]["backend"] == "anthropic" else parse_fixes(fixes or "none")
 
 
 def make_arm_model(arm: str):
@@ -386,6 +423,8 @@ def make_arm_model(arm: str):
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
     if spec["backend"] == "local":
         llm = llm.model_copy(update={"stream_usage": True})  # ask vLLM for token counts; no effect on output
+        if "presence_penalty" in spec:
+            llm = llm.model_copy(update={"presence_penalty": spec["presence_penalty"]})
     if spec.get("think"):  # hidden reasoning before the reply; the reasoning parser keeps it out of the spoken text
         llm = llm.model_copy(update={"extra_body": {"chat_template_kwargs": {"enable_thinking": True}},
                                      "max_tokens": spec.get("max_tokens", 400)})
@@ -399,13 +438,14 @@ def sh(cmd: list[str]) -> str:
         return ""
 
 
-def describe_environment(arms: list[str]) -> dict:
+def describe_environment(arms: list[str], fixes: str | None = None) -> dict:
     env = {
         "started": datetime.now().astimezone().isoformat(timespec="seconds"),
         "git_commit": sh(["git", "rev-parse", "HEAD"]),
         "git_branch": sh(["git", "rev-parse", "--abbrev-ref", "HEAD"]),
         "git_uncommitted": [l for l in sh(["git", "status", "--porcelain"]).splitlines() if "eval/results" not in l],
         "scenarios_sha256": hashlib.sha256(SCENARIOS.read_bytes()).hexdigest(),
+        "holdout": sorted(load_split()),
         "gpu": sh(["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"]),
         "python": sys.version.split()[0],
         "packages": {},
@@ -429,8 +469,14 @@ def describe_environment(arms: list[str]) -> dict:
                                 "thinking": "off (not requested)", "network": "internet, from this machine to the Anthropic API",
                                 "sdk_retries": "langchain-anthropic default"}
         else:
+            tuning = arm_tuning(arm, fixes)
+            sampling = {k: v for k, v in (("top_p", llm.top_p), ("top_k", (llm.extra_body or {}).get("top_k")),
+                                          ("presence_penalty", llm.presence_penalty)) if v is not None}
             env["arms"][arm] = {"label": ARMS[arm]["label"], "model": backend.model, "max_tokens": llm.max_tokens,
-                                "temperature": llm.temperature, "top_p_top_k": "server defaults from the model's generation_config (0.95, 20)",
+                                "fixes": tuning.label,
+                                "temperature": llm.temperature,
+                                "top_p_top_k": (", ".join(f"{k} {v}" for k, v in sampling.items()) + " (rest: server default)")
+                                if sampling else "server defaults from the model's generation_config (0.95, 20)",
                                 "thinking": "ON (enable_thinking=true per request)" if ARMS[arm].get("think") else "off (enable_thinking=false per request and server default)",
                                 "base_url": os.getenv("LOCAL_LLM_BASE_URL", DEFAULT_LOCAL_URL), "network": "localhost",
                                 "client_timeout_s": 30, "retries": 0}
@@ -465,7 +511,7 @@ async def run_all(args) -> Path:
         est = n_turns * args.runs * 1.5 * (1800 * PRICING["input_per_mtok"] + 70 * PRICING["output_per_mtok"]) / 1e6
         print(f"Estimated Claude API cost for this run: about ${est:.2f}")
 
-    config = describe_environment(arms)
+    config = describe_environment(arms, args.fixes)
     config.update({"runs": args.runs, "arms_order": "rotated per scenario so no arm always goes first",
                    "scenarios": [s["id"] for s in scenarios], "evaluated_turns_per_run": n_turns})
     (out / "config.json").write_text(json.dumps(config, indent=2))
@@ -476,6 +522,7 @@ async def run_all(args) -> Path:
     with open(out / "calls.jsonl", "a") as calls_file, open(out / "turns.jsonl", "a") as turns_file:
         rec = Recorder(calls_file)
         models = {arm: make_arm_model(arm)[0] for arm in arms}
+        tunings = {arm: arm_tuning(arm, args.fixes) for arm in arms}
         done, total = 0, len(scenarios) * len(arms) * args.runs
         for run in range(1, args.runs + 1):
             order = scenarios[:]
@@ -484,7 +531,7 @@ async def run_all(args) -> Path:
                 shift = (run + k) % len(arms)
                 for arm in arms[shift:] + arms[:shift]:
                     try:
-                        await run_scenario(sc, arm, run, models[arm], rec, turns_file)
+                        await run_scenario(sc, arm, run, models[arm], rec, turns_file, tunings[arm])
                     except Exception as e:
                         print(f"  !! {arm} {sc['id']} run {run}: {type(e).__name__}: {e}")
                     done += 1
@@ -631,6 +678,9 @@ def score_turn(t: dict, so_far: list[dict], orders: dict) -> dict:
     # ---- behaviour checks (reported separately)
     if exp.get("readback"):
         s["read_back"] = exp["readback"] in db.digits_only(spoken)
+        # diagnostic only (not part of turn_pass): handed off in the same turn as the read-back, i.e. before the
+        # caller confirmed it. The scenarios allow it, but the Greeter's prompt says to wait for the confirmation.
+        s["early_handoff"] = any(tc["name"] == "transfer_to_order_status" for tc in this_calls)
     if exp.get("say_any"):
         s["said_expected"] = any(p.lower() in spoken.lower() for p in exp["say_any"])
 
@@ -677,6 +727,104 @@ def energy_wh(samples: list[tuple[float, float]], a: float, b: float) -> float |
     return statistics.mean(window) * (b - a) / 3600 if window else None
 
 
+def has_tool(t: dict) -> bool:
+    return any(c["tool_calls"] for c in t["calls"])
+
+
+def spoke_before_tool(t: dict) -> bool:
+    """Words reached the caller before the turn's first tool call (e.g. "One moment.")."""
+    for c in t["calls"]:
+        if c["text"].strip():
+            return True
+        if c["tool_calls"]:
+            return False
+    return False
+
+
+def arm_metrics(arm: str, T: list[dict], C: list[dict], samples: list) -> dict:
+    """Every reported number for one arm, over the turns T and model calls C given."""
+    S = [t["score"] for t in T]
+    ok_calls = [c for c in C if not c["error"]]
+    ttft = [c["ttft_ms"] for c in ok_calls if c["ttft_ms"] is not None]
+    total = [c["total_ms"] for c in ok_calls]
+    first_word = [t["first_word_ms"] for t in T if t["first_word_ms"] is not None]
+    runs = sorted({t["run"] for t in T})
+    per_run_ttft = [statistics.median([c["ttft_ms"] for c in ok_calls if c["run"] == r and c["ttft_ms"] is not None] or [0]) for r in runs]
+    per_run_tool = [rate([s["tool_correct"] for t, s in zip(T, S) if t["run"] == r and s["needs_tool"]])[0] for r in runs]
+    r = {
+        "label": ARMS[arm]["label"], "turns": len(T), "model_calls": len(C), "runs": len(runs),
+        "ttft_median": pct(ttft, 50), "ttft_p90": pct(ttft, 90), "ttft_ci": boot_ci_median(ttft),
+        "ttft_per_run_median_range": (min(per_run_ttft), max(per_run_ttft)) if per_run_ttft else None,
+        "total_median": pct(total, 50), "total_p90": pct(total, 90),
+        "first_word_median": pct(first_word, 50), "first_word_p90": pct(first_word, 90),
+        "first_word_tool_median": pct([t["first_word_ms"] for t in T if has_tool(t) and t["first_word_ms"] is not None], 50),
+        "first_word_tool_p90": pct([t["first_word_ms"] for t in T if has_tool(t) and t["first_word_ms"] is not None], 90),
+        "first_word_plain_median": pct([t["first_word_ms"] for t in T if not has_tool(t) and t["first_word_ms"] is not None], 50),
+        "spoke_before_tool": rate([spoke_before_tool(t) for t in T if has_tool(t)]),
+        "guard_triggers": sum(len(t.get("guard_events") or []) for t in T),
+        "guard_turns": sum(bool(t.get("guard_events")) for t in T),
+        "guard_outcomes": dict(sorted(Counter(g["outcome"] for t in T for g in t.get("guard_events") or []).items())),
+        "guard_retry_ms_median": pct([g["retry_ms"] for t in T for g in t.get("guard_events") or []], 50),
+        "guard_retry_ms_max": max([g["retry_ms"] for t in T for g in t.get("guard_events") or []], default=None),
+        "tool_acc": rate([s["tool_correct"] for s in S if s["needs_tool"]]),
+        "tool_acc_per_run_range": (min(per_run_tool), max(per_run_tool)) if per_run_tool else None,
+        "tool_missing": sum(s["missing_tool"] for s in S if s["needs_tool"]),
+        "tool_wrong_args": sum(s["wrong_args"] for s in S if s["needs_tool"]),
+        "unexpected_actions": sum(len(s["unexpected_actions"]) for s in S),
+        "forbidden_calls": sum(len(s["forbidden_calls"]) for s in S),
+        "false_action_claims": sum(s["false_action_claim"] for s in S),
+        "optional_wrong_args": sum(s["optional_wrong_args"] for s in S),
+        "junk_args": sum(s["junk_args"] for s in S),
+        "handoff_acc": rate([s["handoff_correct"] for s in S if "handoff_correct" in s]),
+        "verified_acc": rate([s["verified_correct"] for s in S if "verified_correct" in s]),
+        "leak_turns": sum(bool(s["leaked"]) for s in S),
+        "status_claim_turns": sum(bool(s["status_claims"]) for s in S),
+        "complied_turns": sum(bool(s["complied_with_injection"]) for s in S),
+        "invented_digit_calls": sum(len(s["invented_digits"]) for s in S),
+        "echoed_digit_turns": sum(s["echoed_digits"] for s in S),
+        "gated_attempts": sum(s["gated_attempts"] for s in S),
+        "gate_blocks": sum(s["gate_blocks"] for s in S),
+        "safety_turns": len([t for t in T if t["category"] == "safety"]),
+        "safety_clean_safety_cat": rate([s["safety_clean"] for t, s in zip(T, S) if t["category"] == "safety"]),
+        "safety_clean_all": rate([s["safety_clean"] for s in S]),
+        "words_mean": statistics.mean([s["words"] for s in S if s["words"]]) if S else None,
+        "within_limit": rate([s["within_prompt_limit"] for s in S if s["words"]]),
+        "within_two": rate([s["within_two"] for s in S if s["words"]]),
+        "errors": sum(1 for c in C if c["error"]),
+        "timeouts": sum(1 for c in C if c["error_type"] and "Timeout" in c["error_type"]) + sum(s["timed_out"] for s in S),
+        "invalid_tool_json": sum(len(c["invalid_tool_calls"]) for c in C),
+        "markup_spoken": sum(s["markup_spoken"] for s in S),
+        "empty_calls": sum(s["empty_calls"] for s in S),
+        "fallback_spoken": sum(s["fallback_spoken"] for s in S),
+        "silent_turns": sum(s["silent"] for s in S),
+        "read_back": rate([s["read_back"] for s in S if "read_back" in s]),
+        "early_handoff": rate([s["early_handoff"] for s in S if "early_handoff" in s]),
+        "said_expected": rate([s["said_expected"] for s in S if "said_expected" in s]),
+        "turn_pass": rate([s["turn_pass"] for s in S]),
+        "input_tokens": sum(c["input_tokens"] or 0 for c in C),
+        "output_tokens": sum(c["output_tokens"] or 0 for c in C),
+    }
+    if ARMS[arm]["backend"] == "anthropic":
+        cost = (r["input_tokens"] * PRICING["input_per_mtok"] + r["output_tokens"] * PRICING["output_per_mtok"]) / 1e6
+        r["cost_total"] = cost
+        r["cost_per_1k_turns"] = cost / len(T) * 1000 if T else None
+    else:
+        wh = [energy_wh(samples, t["t_start"], t["t_end"]) for t in T]
+        wh = [x for x in wh if x is not None]
+        secs = sum(t["t_end"] - t["t_start"] for t in T)
+        if wh:
+            gpu_wh_per_turn = sum(wh) / len(wh)
+            r["gpu_wh_per_turn"] = gpu_wh_per_turn
+            r["gpu_watts_mean"] = sum(wh) * 3600 / sum(t["t_end"] - t["t_start"] for t in T)
+            r["cost_per_1k_turns"] = gpu_wh_per_turn * 1000 / 1000 * ELECTRICITY_USD_PER_KWH
+        r["cost_per_1k_turns_upper"] = SYSTEM_WATTS_UPPER_BOUND * secs / len(T) / 3600 * 1000 / 1000 * ELECTRICITY_USD_PER_KWH if T else None
+    per_scn: dict = {}
+    for t, s in zip(T, S):
+        per_scn.setdefault(t["scenario"], []).append(s["turn_pass"])
+    r["per_scenario_pass"] = {k: rate(v) for k, v in per_scn.items()}
+    return r
+
+
 def summarize(out: Path) -> dict:
     config = json.loads((out / "config.json").read_text())
     orders = load_scenarios()["orders"]
@@ -701,82 +849,18 @@ def summarize(out: Path) -> dict:
                                                   "first_word_ms", "turn_ms", "score")}) + "\n")
 
     arms = [a for a in ARMS if any(t["arm"] == a for t in turns)]
-    res: dict = {}
+    holdout = set(config.get("holdout") or load_split())
+    res, res_dev, res_holdout = {}, {}, {}
     for arm in arms:
         T = [t for t in turns if t["arm"] == arm]
         C = [c for c in calls if c["arm"] == arm]
-        S = [t["score"] for t in T]
-        ok_calls = [c for c in C if not c["error"]]
-        ttft = [c["ttft_ms"] for c in ok_calls if c["ttft_ms"] is not None]
-        total = [c["total_ms"] for c in ok_calls]
-        first_word = [t["first_word_ms"] for t in T if t["first_word_ms"] is not None]
-        runs = sorted({t["run"] for t in T})
-        per_run_ttft = [statistics.median([c["ttft_ms"] for c in ok_calls if c["run"] == r and c["ttft_ms"] is not None] or [0]) for r in runs]
-        per_run_tool = [rate([s["tool_correct"] for t, s in zip(T, S) if t["run"] == r and s["needs_tool"]])[0] for r in runs]
-        r = {
-            "label": ARMS[arm]["label"], "turns": len(T), "model_calls": len(C), "runs": len(runs),
-            "ttft_median": pct(ttft, 50), "ttft_p90": pct(ttft, 90), "ttft_ci": boot_ci_median(ttft),
-            "ttft_per_run_median_range": (min(per_run_ttft), max(per_run_ttft)) if per_run_ttft else None,
-            "total_median": pct(total, 50), "total_p90": pct(total, 90),
-            "first_word_median": pct(first_word, 50), "first_word_p90": pct(first_word, 90),
-            "tool_acc": rate([s["tool_correct"] for s in S if s["needs_tool"]]),
-            "tool_acc_per_run_range": (min(per_run_tool), max(per_run_tool)) if per_run_tool else None,
-            "tool_missing": sum(s["missing_tool"] for s in S if s["needs_tool"]),
-            "tool_wrong_args": sum(s["wrong_args"] for s in S if s["needs_tool"]),
-            "unexpected_actions": sum(len(s["unexpected_actions"]) for s in S),
-            "forbidden_calls": sum(len(s["forbidden_calls"]) for s in S),
-            "false_action_claims": sum(s["false_action_claim"] for s in S),
-            "optional_wrong_args": sum(s["optional_wrong_args"] for s in S),
-            "junk_args": sum(s["junk_args"] for s in S),
-            "handoff_acc": rate([s["handoff_correct"] for s in S if "handoff_correct" in s]),
-            "verified_acc": rate([s["verified_correct"] for s in S if "verified_correct" in s]),
-            "leak_turns": sum(bool(s["leaked"]) for s in S),
-            "status_claim_turns": sum(bool(s["status_claims"]) for s in S),
-            "complied_turns": sum(bool(s["complied_with_injection"]) for s in S),
-            "invented_digit_calls": sum(len(s["invented_digits"]) for s in S),
-            "echoed_digit_turns": sum(s["echoed_digits"] for s in S),
-            "gated_attempts": sum(s["gated_attempts"] for s in S),
-            "gate_blocks": sum(s["gate_blocks"] for s in S),
-            "safety_turns": len([t for t in T if t["category"] == "safety"]),
-            "safety_clean_safety_cat": rate([s["safety_clean"] for t, s in zip(T, S) if t["category"] == "safety"]),
-            "safety_clean_all": rate([s["safety_clean"] for s in S]),
-            "words_mean": statistics.mean([s["words"] for s in S if s["words"]]) if S else None,
-            "within_limit": rate([s["within_prompt_limit"] for s in S if s["words"]]),
-            "within_two": rate([s["within_two"] for s in S if s["words"]]),
-            "errors": sum(1 for c in C if c["error"]),
-            "timeouts": sum(1 for c in C if c["error_type"] and "Timeout" in c["error_type"]) + sum(s["timed_out"] for s in S),
-            "invalid_tool_json": sum(len(c["invalid_tool_calls"]) for c in C),
-            "markup_spoken": sum(s["markup_spoken"] for s in S),
-            "empty_calls": sum(s["empty_calls"] for s in S),
-            "fallback_spoken": sum(s["fallback_spoken"] for s in S),
-            "silent_turns": sum(s["silent"] for s in S),
-            "read_back": rate([s["read_back"] for s in S if "read_back" in s]),
-            "said_expected": rate([s["said_expected"] for s in S if "said_expected" in s]),
-            "turn_pass": rate([s["turn_pass"] for s in S]),
-            "input_tokens": sum(c["input_tokens"] or 0 for c in C),
-            "output_tokens": sum(c["output_tokens"] or 0 for c in C),
-        }
-        if ARMS[arm]["backend"] == "anthropic":
-            cost = (r["input_tokens"] * PRICING["input_per_mtok"] + r["output_tokens"] * PRICING["output_per_mtok"]) / 1e6
-            r["cost_total"] = cost
-            r["cost_per_1k_turns"] = cost / len(T) * 1000 if T else None
-        else:
-            wh = [energy_wh(samples, t["t_start"], t["t_end"]) for t in T]
-            wh = [x for x in wh if x is not None]
-            secs = sum(t["t_end"] - t["t_start"] for t in T)
-            if wh:
-                gpu_wh_per_turn = sum(wh) / len(wh)
-                r["gpu_wh_per_turn"] = gpu_wh_per_turn
-                r["gpu_watts_mean"] = sum(wh) * 3600 / sum(t["t_end"] - t["t_start"] for t in T)
-                r["cost_per_1k_turns"] = gpu_wh_per_turn * 1000 / 1000 * ELECTRICITY_USD_PER_KWH
-            r["cost_per_1k_turns_upper"] = SYSTEM_WATTS_UPPER_BOUND * secs / len(T) / 3600 * 1000 / 1000 * ELECTRICITY_USD_PER_KWH if T else None
-        per_scn: dict = {}
-        for t, s in zip(T, S):
-            per_scn.setdefault(t["scenario"], []).append(s["turn_pass"])
-        r["per_scenario_pass"] = {k: rate(v) for k, v in per_scn.items()}
-        res[arm] = r
-    (out / "summary.json").write_text(json.dumps({"config": config, "results": res}, indent=2, default=str))
-    (out / "summary.md").write_text(render_markdown(config, res, arms))
+        res[arm] = arm_metrics(arm, T, C, samples)
+        for subset, keep in ((res_dev, lambda x: x not in holdout), (res_holdout, lambda x: x in holdout)):
+            subset[arm] = arm_metrics(arm, [t for t in T if keep(t["scenario"])], [c for c in C if keep(c["scenario"])], samples)
+    (out / "summary.json").write_text(json.dumps({"config": config, "results": res, "results_dev": res_dev,
+                                                  "results_holdout": res_holdout, "holdout": sorted(holdout)},
+                                                 indent=2, default=str))
+    (out / "summary.md").write_text(render_markdown(config, res, arms, res_dev, res_holdout, holdout))
     if "claude" in res and "qwen" in res:
         try:
             draw_chart(res, out / "ttft_chart.png")
@@ -794,7 +878,8 @@ def _pct(r):
     return "n/a" if p is None else f"{p:.0f}% ({k}/{n})"
 
 
-def render_markdown(config: dict, res: dict, arms: list) -> str:
+def render_markdown(config: dict, res: dict, arms: list, res_dev: dict | None = None, res_holdout: dict | None = None,
+                    holdout: set | None = None) -> str:
     head = "| Metric | " + " | ".join(res[a]["label"] for a in arms) + " |\n|---|" + "---|" * len(arms) + "\n"
 
     def row(name, fn):
@@ -830,6 +915,10 @@ def render_markdown(config: dict, res: dict, arms: list) -> str:
     md += row("Total response time per model call, 90th percentile", lambda r: _ms(r["total_p90"]))
     md += row("First spoken word per caller turn, median (incl. tools, hand-offs)", lambda r: _ms(r["first_word_median"]))
     md += row("First spoken word per caller turn, 90th percentile", lambda r: _ms(r["first_word_p90"]))
+    md += row("First spoken word, turns with a tool call, median / 90th pct",
+              lambda r: f"{_ms(r['first_word_tool_median'])} / {_ms(r['first_word_tool_p90'])}")
+    md += row("First spoken word, turns without a tool call, median", lambda r: _ms(r["first_word_plain_median"]))
+    md += row("Tool turns where words came before the first tool call", lambda r: _pct(r["spoke_before_tool"]))
     md += row("**Tool-call accuracy** (turns that need a tool)", lambda r: f"**{_pct(r['tool_acc'])}**")
     md += row("  per-run range", lambda r: "{:.0f}–{:.0f}%".format(*r["tool_acc_per_run_range"]) if r["tool_acc_per_run_range"] else "n/a")
     md += row("  needed tool never called / called with wrong arguments", lambda r: f"{r['tool_missing']} / {r['tool_wrong_args']}")
@@ -857,9 +946,25 @@ def render_markdown(config: dict, res: dict, arms: list) -> str:
               lambda r: f"{r['empty_calls']} / {r['fallback_spoken']} / {r['silent_turns']}")
     md += row("Read the order or phone number back (behaviour)", lambda r: _pct(r["read_back"]))
     md += row("Said what the turn needed (behaviour)", lambda r: _pct(r["said_expected"]))
+    md += row("Handed off before the caller confirmed the read-back (behaviour)", lambda r: _pct(r["early_handoff"]))
     md += row("Tokens in / out (all calls)", lambda r: f"{r['input_tokens']:,} / {r['output_tokens']:,}")
     md += row("**Running cost per 1,000 caller turns**", cost)
     md += row("Caller turns passing every check", lambda r: _pct(r["turn_pass"]))
+    md += row("Narration guard (fix C): turns where it fired / outcomes / retry time median, max",
+              lambda r: f"{r['guard_turns']} / " + (", ".join(f"{k} {v}" for k, v in r["guard_outcomes"].items()) or "-")
+              + (f" / {_ms(r['guard_retry_ms_median'])}, {_ms(r['guard_retry_ms_max'])}" if r["guard_triggers"] else ""))
+
+    if res_dev and res_holdout:
+        md += ("\n## Dev and held-out scenarios\n\n"
+               f"Held-out ({len(holdout)} scenarios, never used to write prompts or examples, never used to pick a change; "
+               "eval/split.yaml): " + ", ".join(sorted(holdout)) + ".\n\n")
+        md += ("| Arm | Set | Tool-call accuracy | Hand-off accuracy | Safety turns clean | Said done, no tool | "
+               "Status before verification | Junk args | Turns passing | First word, tool turns |\n|---|---|---|---|---|---|---|---|---|---|\n")
+        for a in arms:
+            for name, rr in (("dev", res_dev[a]), ("held-out", res_holdout[a])):
+                md += (f"| {rr['label']} | {name} | {_pct(rr['tool_acc'])} | {_pct(rr['handoff_acc'])} | "
+                       f"{_pct(rr['safety_clean_safety_cat'])} | {rr['false_action_claims']} | {rr['status_claim_turns']} | "
+                       f"{rr['junk_args']} | {_pct(rr['turn_pass'])} | {_ms(rr['first_word_tool_median'])} |\n")
 
     md += "\n## Per scenario: turns passing every check\n\n"
     md += "| Scenario | " + " | ".join(res[a]["label"] for a in arms) + " |\n|---|" + "---|" * len(arms) + "\n"
@@ -869,6 +974,8 @@ def render_markdown(config: dict, res: dict, arms: list) -> str:
     md += "\n## Settings\n\n"
     for a in arms:
         md += f"- **{res[a]['label']}**: " + ", ".join(f"{k}: {v}" for k, v in config["arms"][a].items() if k != "label") + "\n"
+        if "fixes" not in config["arms"][a] and ARMS[a]["backend"] == "local":
+            md += "  (run before wismo/tuning.py existed: no fixes)\n"
     if "vllm" in config:
         v = config["vllm"]
         md += f"- **vLLM**: image `{v.get('image')}`, checkpoint `{v.get('checkpoint')}`, max_model_len {v.get('max_model_len')}\n"
@@ -906,6 +1013,7 @@ def main() -> None:
     r.add_argument("--arms", default="claude,qwen,qwen_t1")
     r.add_argument("--only", help="comma-separated scenario ids")
     r.add_argument("--out")
+    r.add_argument("--fixes", help=f"local arms only: none (default), default, or a list of {', '.join(FIXES)}")
     s = sub.add_parser("summarize")
     s.add_argument("dir")
     args = ap.parse_args()

@@ -24,6 +24,7 @@ from livekit.plugins.turn_detector.english import EnglishModel
 
 from wismo import GREETING, CallContext, CallTracer, build_graph, report, summarize_call
 from wismo.llm import make_llm
+from wismo.tuning import tuning_for
 from wismo.panel import TRACE_TOPIC, send, voice_turn
 from wismo.trace import now_ms
 
@@ -59,8 +60,9 @@ async def entrypoint(ctx: JobContext) -> None:
     # One graph (and one in-memory checkpoint) per call, so nothing leaks between callers.
     # LLM_BACKEND picks Claude (default) or the self-hosted model; see wismo/llm.py.
     llm, backend = make_llm(max_tokens=400)
-    logger.info("LLM backend for this call: %s", backend.label)
-    graph = build_graph(llm, checkpointer=InMemorySaver())
+    tuning = tuning_for(backend.name)  # Claude: none; local: the measured fixes (docs/qwen_fix_log.md)
+    logger.info("LLM backend for this call: %s (fixes: %s)", backend.label, tuning.label)
+    graph = build_graph(llm, checkpointer=InMemorySaver(), tuning=tuning)
     thread_id = f"{ctx.room.name}:{ctx.job.id}"
     config = {
         "configurable": {"thread_id": thread_id},

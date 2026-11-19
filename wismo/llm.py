@@ -49,6 +49,11 @@ def make_llm(max_tokens: int, backend: str | None = None):
         from langchain_openai import ChatOpenAI
 
         model = os.getenv("LOCAL_LLM_MODEL", DEFAULT_LOCAL_MODEL)
+        extra: dict = {"chat_template_kwargs": {"enable_thinking": False}}
+        # top_k isn't an OpenAI parameter, so vLLM takes it in the request body. Unset = server default.
+        if os.getenv("LOCAL_LLM_TOP_K"):
+            extra["top_k"] = int(os.environ["LOCAL_LLM_TOP_K"])
+        top_p = float(os.environ["LOCAL_LLM_TOP_P"]) if os.getenv("LOCAL_LLM_TOP_P") else None
         llm = ChatOpenAI(
             model=model,
             base_url=os.getenv("LOCAL_LLM_BASE_URL", DEFAULT_LOCAL_URL),
@@ -57,9 +62,10 @@ def make_llm(max_tokens: int, backend: str | None = None):
             # 0.2, not the server's default of 1.0: at 1.0 this model often skipped tool calls and
             # handoffs in scripted calls. Override with LOCAL_LLM_TEMPERATURE.
             temperature=float(os.getenv("LOCAL_LLM_TEMPERATURE", "0.2")),
+            top_p=top_p,
             # Thinking OFF on every request, as well as in the server's default: hidden reasoning
             # tokens would delay the first spoken word.
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            extra_body=extra,
             # Server errors should fall through to the graph's spoken fallback quickly, not hang a call.
             timeout=30,
             max_retries=0,
