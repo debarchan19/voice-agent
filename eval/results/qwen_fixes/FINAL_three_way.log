@@ -1,0 +1,56 @@
+transfer_to_order_status: treating phone='' as missing
+transfer_to_order_status: treating phone='' as missing
+narration guard (resolution): 'Let me check the available options for rescheduling your delivery to this Friday, which would be November 20, 2026.' -> text in 774 ms
+29 scenarios, 36 evaluated turns, 5 run(s), arms: claude, qwen_base, qwen_base_t1, qwen, qwen_t1
+Estimated Claude API cost for this run: about $1.74
+  run 1: 1/29 scenarios (5/725)  run 1: 2/29 scenarios (10/725)  run 1: 3/29 scenarios (15/725)  run 1: 4/29 scenarios (20/725)  run 1: 5/29 scenarios (25/725)narration guard (resolution): 'One moment.' -> left_as_is in 946 ms
+  run 1: 6/29 scenarios (30/725)  run 1: 7/29 scenarios (35/725)  run 1: 8/29 scenarios (40/725)  run 1: 9/29 scenarios (45/725)  run 1: 10/29 scenarios (50/725)  run 1: 11/29 scenarios (55/725)  run 1: 12/29 scenarios (60/725)  run 1: 13/29 scenarios (65/725)  run 1: 14/29 scenarios (70/725)narration guard (order_status): 'Let me look up what orders are on your phone number.' -> left_as_is in 620 ms
+  run 1: 15/29 scenarios (75/725)  run 1: 16/29 scenarios (80/725)narration guard (greeter): 'Let me transfer you to someone who can help with that.' -> tool_call in 1033 ms
+  run 1: 17/29 scenarios (85/725)  run 1: 18/29 scenarios (90/725)  run 1: 19/29 scenarios (95/725)  run 1: 20/29 scenarios (100/725)  run 1: 21/29 scenarios (105/725)transfer_to_order_status: treating order_id='None' as missing
+  run 1: 22/29 scenarios (110/725)  run 1: 23/29 scenarios (115/725)transfer_to_order_status: treating order_id='None' as missing
+transfer_to_order_status: treating order_id='None' as missing
+  run 1: 24/29 scenarios (120/725)transfer_to_order_status: treating phone='' as missing
+  run 1: 25/29 scenarios (125/725)  run 1: 26/29 scenarios (130/725)  run 1: 27/29 scenarios (135/725)  run 1: 28/29 scenarios (140/725)  run 1: 29/29 scenarios (145/725)
+  run 2: 1/29 scenarios (150/725)  run 2: 2/29 scenarios (155/725)  run 2: 3/29 scenarios (160/725)  run 2: 4/29 scenarios (165/725)  run 2: 5/29 scenarios (170/725)  run 2: 6/29 scenarios (175/725)  run 2: 7/29 scenarios (180/725)  run 2: 8/29 scenarios (185/725)  run 2: 9/29 scenarios (190/725)narration guard (order_status): 'Sure, let me check that for you.' -> left_as_is in 738 ms
+  run 2: 10/29 scenarios (195/725)  run 2: 11/29 scenarios (200/725)transfer_to_order_status: treating order_id='None' as missing
+  run 2: 12/29 scenarios (205/725)  run 2: 13/29 scenarios (210/725)  run 2: 14/29 scenarios (215/725)  run 2: 15/29 scenarios (220/725)  run 2: 16/29 scenarios (225/725)  run 2: 17/29 scenarios (230/725)  run 2: 18/29 scenarios (235/725)  run 2: 19/29 scenarios (240/725)narration guard (order_status): "Please share the last four digits of the phone number on the order, and I'll check it right away." -> text in 1008 ms
+  run 2: 20/29 scenarios (245/725)  run 2: 21/29 scenarios (250/725)  run 2: 22/29 scenarios (255/725)  run 2: 23/29 scenarios (260/725)  run 2: 24/29 scenarios (265/725)  run 2: 25/29 scenarios (270/725)transfer_to_order_status: treating phone='' as missing
+  run 2: 26/29 scenarios (275/725)  run 2: 27/29 scenarios (280/725)narration guard (order_status): 'Got it, let me check on ORD-51907 for you.' -> left_as_is in 638 ms
+  run 2: 28/29 scenarios (285/725)  run 2: 29/29 scenarios (290/725)transfer_to_order_status: treating order_id='None' as missing
+
+  run 3: 1/29 scenarios (295/725)  run 3: 2/29 scenarios (300/725)  run 3: 3/29 scenarios (305/725)narration guard (order_status): 'Okay, let me pull up your account.' -> tool_call in 685 ms
+  run 3: 4/29 scenarios (310/725)narration guard (resolution): 'One moment.' -> text in 840 ms
+  run 3: 5/29 scenarios (315/725)  run 3: 6/29 scenarios (320/725)narration guard (resolution): 'One moment.' -> left_as_is in 641 ms
+  run 3: 7/29 scenarios (325/725)  run 3: 8/29 scenarios (330/725)  run 3: 9/29 scenarios (335/725)narration guard (order_status): 'Let me check if there are any updates on when it might move forward.' -> left_as_is in 790 ms
+  run 3: 10/29 scenarios (340/725)transfer_to_order_status: treating phone='' as missing
+transfer_to_order_status: treating phone='' as missing
+  run 3: 11/29 scenarios (345/725)  run 3: 12/29 scenarios (350/725)transfer_to_order_status: treating phone='' as missing
+transfer_to_order_status: treating phone='' as missing
+  run 3: 13/29 scenarios (355/725)narration guard (resolution): 'Let me check on order ORD 9 5 0 6 3 first.' -> left_as_is in 576 ms
+  run 3: 14/29 scenarios (360/725)transfer_to_order_status: treating phone='' as missing
+narration guard (order_status): 'Okay, let me pull up that order.' -> left_as_is in 638 ms
+narration guard (order_status): 'Okay, let me pull up that order for you.' -> left_as_is in 661 ms
+transfer_to_order_status: treating phone='' as missing
+  run 3: 15/29 scenarios (365/725)  run 3: 16/29 scenarios (370/725)  run 3: 17/29 scenarios (375/725)  run 3: 18/29 scenarios (380/725)  run 3: 19/29 scenarios (385/725)  run 3: 20/29 scenarios (390/725)  run 3: 21/29 scenarios (395/725)  run 3: 22/29 scenarios (400/725)narration guard (order_status): "Let's check the tracking details for you." -> tool_call in 953 ms
+  run 3: 23/29 scenarios (405/725)  run 3: 24/29 scenarios (410/725)narration guard (resolution): "I've opened the ticket for your lost package." -> tool_call in 934 ms
+  run 3: 25/29 scenarios (415/725)  run 3: 26/29 scenarios (420/725)  run 3: 27/29 scenarios (425/725)  run 3: 28/29 scenarios (430/725)narration guard (order_status): 'Let me check that for you.' -> tool_call in 679 ms
+  run 3: 29/29 scenarios (435/725)
+  run 4: 1/29 scenarios (440/725)  run 4: 2/29 scenarios (445/725)  run 4: 3/29 scenarios (450/725)  run 4: 4/29 scenarios (455/725)narration guard (order_status): 'Okay, let me look up your orders with that number.' -> tool_call in 651 ms
+  run 4: 5/29 scenarios (460/725)  run 4: 6/29 scenarios (465/725)  run 4: 7/29 scenarios (470/725)  run 4: 8/29 scenarios (475/725)  run 4: 9/29 scenarios (480/725)  run 4: 10/29 scenarios (485/725)narration guard (resolution): 'One moment.' -> text in 647 ms
+  run 4: 11/29 scenarios (490/725)  run 4: 12/29 scenarios (495/725)transfer_to_order_status: treating phone='' as missing
+  run 4: 13/29 scenarios (500/725)  run 4: 14/29 scenarios (505/725)  run 4: 15/29 scenarios (510/725)  run 4: 16/29 scenarios (515/725)  run 4: 17/29 scenarios (520/725)  run 4: 18/29 scenarios (525/725)  run 4: 19/29 scenarios (530/725)  run 4: 20/29 scenarios (535/725)  run 4: 21/29 scenarios (540/725)  run 4: 22/29 scenarios (545/725)  run 4: 23/29 scenarios (550/725)  run 4: 24/29 scenarios (555/725)  run 4: 25/29 scenarios (560/725)transfer_to_order_status: treating phone='' as missing
+  run 4: 26/29 scenarios (565/725)  run 4: 27/29 scenarios (570/725)  run 4: 28/29 scenarios (575/725)  run 4: 29/29 scenarios (580/725)
+  run 5: 1/29 scenarios (585/725)  run 5: 2/29 scenarios (590/725)narration guard (resolution): "Okay, I'm opening a lost package ticket for order ORD-60582." -> tool_call in 912 ms
+  run 5: 3/29 scenarios (595/725)narration guard (order_status): 'Let me check the latest tracking update for more details.' -> left_as_is in 742 ms
+  run 5: 4/29 scenarios (600/725)  run 5: 5/29 scenarios (605/725)narration guard (resolution): 'One moment.' -> left_as_is in 636 ms
+  run 5: 6/29 scenarios (610/725)  run 5: 7/29 scenarios (615/725)  run 5: 8/29 scenarios (620/725)transfer_to_order_status: treating order_id='None' as missing
+  run 5: 9/29 scenarios (625/725)  run 5: 10/29 scenarios (630/725)  run 5: 11/29 scenarios (635/725)  run 5: 12/29 scenarios (640/725)  run 5: 13/29 scenarios (645/725)  run 5: 14/29 scenarios (650/725)  run 5: 15/29 scenarios (655/725)transfer_to_order_status: treating phone='' as missing
+  run 5: 16/29 scenarios (660/725)  run 5: 17/29 scenarios (665/725)  run 5: 18/29 scenarios (670/725)transfer_to_order_status: treating phone='' as missing
+  run 5: 19/29 scenarios (675/725)  run 5: 20/29 scenarios (680/725)narration guard (order_status): 'Okay, let me look up your orders.' -> tool_call in 706 ms
+  run 5: 21/29 scenarios (685/725)  run 5: 22/29 scenarios (690/725)  run 5: 23/29 scenarios (695/725)  run 5: 24/29 scenarios (700/725)  run 5: 25/29 scenarios (705/725)  run 5: 26/29 scenarios (710/725)  run 5: 27/29 scenarios (715/725)  run 5: 28/29 scenarios (720/725)narration guard (resolution): "Okay, let's check the latest tracking for that order first." -> text in 741 ms
+transfer_to_order_status: treating phone='' as missing
+transfer_to_order_status: treating phone='' as missing
+  run 5: 29/29 scenarios (725/725)
+
+Raw results: eval/results/qwen_fixes/FINAL_three_way
+Summary: eval/results/qwen_fixes/FINAL_three_way/summary.md

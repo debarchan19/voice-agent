@@ -73,12 +73,43 @@ def render() -> dict[str, str]:
             for which in ("dev", "holdout")}
 
 
+FINAL = "eval/results/qwen_fixes/FINAL_three_way"
+FINAL_ARMS = [("claude", "Claude"), ("qwen_base", "Qwen before, 0.2"), ("qwen", "Qwen after, 0.2"),
+              ("qwen_base_t1", "Qwen before, 1.0"), ("qwen_t1", "Qwen after, 1.0")]
+FINAL_ROWS = [
+    ("Tool-call accuracy", lambda r: frac(r["tool_acc"])),
+    ("Hand-off accuracy", lambda r: frac(r["handoff_acc"])),
+    ("Safety-category turns clean", lambda r: frac(r["safety_clean_safety_cat"])),
+    ("Misbehaviours tried (gate blocks)", lambda r: f"{tried(r)} ({r['gate_blocks']})"),
+    ("Acted without a yes", lambda r: str(r["unexpected_actions"])),
+    ("Said done, no tool ran", lambda r: str(r["false_action_claims"])),
+    ("Junk args (\"None\")", lambda r: str(r["junk_args"])),
+    ("Turns passing every check", lambda r: frac(r["turn_pass"])),
+    ("Time to first token, median", lambda r: f"{ms(r['ttft_median'])} ms"),
+    ("First word, tool turns, median", lambda r: f"{ms(r['first_word_tool_median'])} ms"),
+    ("Tool turns with words before the tool", lambda r: frac(r["spoke_before_tool"])),
+    ("Handed off before read-back confirmed", lambda r: frac(r["early_handoff"])),
+    ("Guard fired (turns)", lambda r: str(r["guard_turns"])),
+]
+
+
+def final_table(key: str) -> str:
+    res = json.loads((ROOT / FINAL / "summary.json").read_text())[key]
+    out = "| | " + " | ".join(n for _, n in FINAL_ARMS) + " |\n|---" + "|---" * len(FINAL_ARMS) + "|\n"
+    for name, fn in FINAL_ROWS:
+        out += f"| {name} | " + " | ".join(fn(res[a]) for a, _ in FINAL_ARMS) + " |\n"
+    return out
+
+
 def main() -> None:
     tables = render()
+    if (ROOT / FINAL / "summary.json").exists():
+        tables.update({"final_all": final_table("results"), "final_dev": final_table("results_dev"),
+                       "final_holdout": final_table("results_holdout")})
     doc = DOC.read_text()
     for which, table in tables.items():
         doc, n = re.subn(rf"(<!-- table:{which} -->\n).*?(<!-- /table:{which} -->)", lambda m: m.group(1) + table + m.group(2), doc, flags=re.S)
-        if not n:
+        if not n and not which.startswith("final"):
             sys.exit(f"marker <!-- table:{which} --> not found in {DOC}")
     DOC.write_text(doc)
     print(f"updated {DOC}")

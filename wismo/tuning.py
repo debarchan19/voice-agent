@@ -32,7 +32,7 @@ FIXES: dict[str, str] = {
 }
 
 # The set the local backend uses by default. Filled in from the experiments; see docs/qwen_fix_log.md.
-LOCAL_DEFAULT_FIXES: frozenset[str] = frozenset()
+LOCAL_DEFAULT_FIXES: frozenset[str] = frozenset({"act_first", "omit_empty_args", "no_unverified_status", "narration_guard"})
 
 
 @dataclass(frozen=True)
