@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import time
 
 from langchain_core.messages import (
     AIMessage,
@@ -28,18 +30,25 @@ from langgraph.runtime import Runtime
 import db
 
 from .facts import describe_action, long_date, run_db
-from .panel import report
+from .panel import TRACE_TOPIC, report, send
 from .prompts import (
     FALLBACK_SPEECH,
+    GUARD_FALLBACK_SPEECH,
+    GUARD_RETRY_NOTE,
     NOTE_EARLIER_ACTION,
     NOTE_EARLIER_EMAIL,
     NOTE_EMAIL_FAILED,
     NOTE_EMAIL_SENT,
+    QWEN_EXAMPLES,
+    QWEN_TOOL_RULES,
+    QWEN_TOOL_RULES_HEADER,
     ROLES,
     voice_rules,
 )
 from .state import AGENTS, HANDOFFS, AgentName, CallContext, CallState
+from .tool_specs import tool_specs
 from .tools import TOOLS, ToolError
+from .tuning import NO_TUNING, Tuning
 
 logger = logging.getLogger("wismo.graph")
 
@@ -77,11 +86,20 @@ def spoken_this_turn(msgs: list[AnyMessage]) -> str:
     return " ".join(m.text for m in _this_turn(msgs) if isinstance(m, AIMessage) and m.name in AGENTS and m.text)
 
 
-def system_prompt(agent: AgentName, state: dict) -> str:
-    prompt = f"{voice_rules()}\n\n{ROLES[agent]}\n\nContext from earlier in this call: {summary(state)}"
+def tuned_rules(agent: AgentName, tuning: Tuning) -> str:
+    """Extra prompt text for a self-hosted model. Empty with NO_TUNING, so Claude's prompt is unchanged."""
+    rules = [QWEN_TOOL_RULES[k] for k in QWEN_TOOL_RULES if tuning.has(k)]
+    out = f"\n\n{QWEN_TOOL_RULES_HEADER}\n" + "\n".join(rules) if rules else ""
+    if tuning.has("few_shot") and agent in QWEN_EXAMPLES:
+        out += f"\n\n{QWEN_EXAMPLES[agent]}"
+    return out
+
+
+def system_prompt(agent: AgentName, state: dict, tuning: Tuning = NO_TUNING, also_said: str = "") -> str:
+    prompt = f"{voice_rules()}{tuned_rules(agent, tuning)}\n\n{ROLES[agent]}\n\nContext from earlier in this call: {summary(state)}"
     if state.get("notes"):
         prompt += "\n\nYou have just taken over the call, or something just happened. " + " ".join(state["notes"])
-    said = spoken_this_turn(state["messages"])
+    said = " ".join(x for x in (spoken_this_turn(state["messages"]), also_said) if x)
     if said:
         prompt += (
             f"\n\nYou already said this to the caller this turn: '{said}'. Carry straight on from it, with no "
@@ -188,35 +206,175 @@ def route_after_begin(state: CallState) -> str:
     return agent
 
 
-def make_specialist(agent: AgentName, model):
+# --------------------------------------------------------------------------- narration guard (fix C)
+# A reply that tells the caller an action is happening or done ("I'm opening a ticket now",
+# "let me pull up your account", a bare "One moment.") while no tool call backs it up. Offers and
+# questions ("Shall I open a ticket?", "I can move it to Friday, okay?") are not claims.
+
+_CLAIM = re.compile(
+    r"\b(?:i'?m|i am|i'?ll|i will|let me|let's|i'?ve|i have|we'?ve|we have|we'?re|we'?ll)\s+"
+    r"(?:now\s+|just\s+|quickly\s+|go ahead and\s+|gone ahead and\s+|going to\s+|be\s+)?"
+    r"(?:open|creat|submit|process|request|reschedul|mov|fil(?:e|ing|ed)\b|log(?:ging|ged)?\b|escalat|refund|book|"
+    r"put(?:ting)? in|pull(?:ing|ed)? up|look(?:ing|ed)? (?:up|into)|check|find|transfer|connect|arrang)"
+    r"|^\s*done\b|\b(?:is|has been|have been)\s+(?:now\s+)?(?:opened|created|submitted|processed|requested|"
+    r"rescheduled|moved|escalated|filed|logged|booked)\b",
+    re.I,
+)
+_WAIT = re.compile(r"^\s*(?:one|just a) (?:moment|second|sec)\b|^\s*hold on\b", re.I)
+# A question asking the caller to approve what was just described turns the whole reply into an offer.
+_CONFIRM_Q = re.compile(
+    r"\b(?:is|does|would) that (?:okay|ok|alright|all right|good|work|sound good|fine|right)\b|\b(?:shall|should|can|may) i\b|"
+    r"\bgo ahead\b|\bproceed\b|\bsound good\b|\bwork for you\b|\b(?:okay|ok|right)\?$|\bwant me to\b|\blike me to\b",
+    re.I,
+)
+_OFFER = re.compile(
+    r"\b(?:shall|should|can|could|may) (?:i|we)\b|\bi (?:can|could)\b|would you like|do you want|want me to|"
+    r"\bif you(?:'d)? like\b|happy to|\bonce you\b|as soon as you|\bafter you\b|\bif you (?:confirm|say)\b|"
+    r"\bsay yes\b|\bif that'?s (?:right|correct|okay|ok)\b",
+    re.I,
+)
+# What a claim is about -> the tools that would make it true (intersected with the agent's own tools).
+_TOPICS = [
+    (re.compile(r"refund", re.I), {"request_refund", "transfer_to_resolution"}),
+    (re.compile(r"ticket|claim|case|report", re.I), {"create_ticket", "escalate_to_human", "transfer_to_resolution"}),
+    (re.compile(r"reschedul|\bmov(?:e|ing|ed)\b|new date|delivery date", re.I), {"reschedule_delivery", "transfer_to_resolution"}),
+    (re.compile(r"escalat|specialist|human|a person|someone|call you back", re.I), {"escalate_to_human", "transfer_to_resolution"}),
+]
+_LOOKUPS = {"transfer_to_order_status", "lookup_order_by_id", "lookup_orders_by_phone", "get_tracking_events"}
+_CHANGES = {"reschedule_delivery", "request_refund", "create_ticket", "escalate_to_human"}
+_DONE = re.compile(r"^\s*done\b|\b(?:i'?ve|i have|we'?ve|we have)\s|\b(?:is|has been|have been)\s+(?:now\s+)?\w+ed\b", re.I)
+# Verification needs digits only the caller can give, so the guard never asks the model to "do" it.
+_NEVER_RETRY = {"search_web", "verify_customer"}
+_ACTION_TOOL = {"reschedule": "reschedule_delivery", "refund": "request_refund", "ticket": "create_ticket",
+                "escalation": "escalate_to_human"}
+
+
+def _sentences(text: str) -> list[str]:
+    return [x.strip() for x in re.split(r"(?<=[.!?])\s+|\n+", text) if x.strip()]
+
+
+def claims_a_change(agent: AgentName, claim: str) -> bool:
+    """The claim says something changed or is changing (ticket, refund, new date, escalation), or is done."""
+    topical = set().union(*(tools for rx, tools in _TOPICS if rx.search(claim)))
+    return bool(topical & _CHANGES & {t.name for t in TOOLS[agent]}) or bool(_DONE.search(claim))
+
+
+def unbacked_claim(agent: AgentName, reply_text: str, state: dict) -> str | None:
+    """The sentence of a tool-less reply that claims an action no tool call made true, if any."""
+    own = {t.name for t in TOOLS[agent]} - _NEVER_RETRY
+    ran = {tc["name"] for m in _this_turn(state["messages"]) if isinstance(m, AIMessage) for tc in m.tool_calls}
+    last = (state.get("last_action") or {}).get("action")
+    if last in _ACTION_TOOL:
+        ran.add(_ACTION_TOOL[last])  # an action finished earlier in the call makes "it's done" true
+    sentences = _sentences(reply_text)
+    if any(x.endswith("?") and _CONFIRM_Q.search(x) for x in sentences):
+        return None  # describing an action and asking for a yes is exactly right
+    found: list[str] = []
+    for sentence in sentences:
+        if sentence.endswith("?") or _OFFER.search(sentence):
+            continue
+        if _WAIT.search(sentence):
+            wanted = own
+        elif _CLAIM.search(sentence):
+            topical = set().union(*(tools for rx, tools in _TOPICS if rx.search(sentence))) & own
+            wanted = topical or (_LOOKUPS & own) or own  # "I'm opening it now", "Done." with no topic word
+        else:
+            continue
+        if wanted and not wanted & ran:
+            found.append(sentence)
+    # The most telling sentence: one that claims a change ("I'm opening the ticket now") over "One moment."
+    return next((x for x in found if claims_a_change(agent, x)), found[0] if found else None)
+
+
+async def _collect(bound, prompt, emit) -> AIMessage:
+    full = None
+    async for chunk in bound.astream(prompt):
+        if chunk.text and emit:
+            emit(chunk.text)
+        full = chunk if full is None else full + chunk
+    if full is None:
+        raise RuntimeError("the model returned nothing")
+    return full
+
+
+def make_specialist(agent: AgentName, model, tuning: Tuning = NO_TUNING):
     # One tool call at a time: parallel calls can both write the same state key in one step,
     # which LangGraph rejects (and a hand-off alongside another tool would be ambiguous).
-    bound = model.bind_tools(TOOLS[agent], parallel_tool_calls=False)
+    bound = model.bind_tools(tool_specs(agent, tuning), parallel_tool_calls=False)
 
     async def specialist(state: CallState, runtime: Runtime[CallContext]) -> dict:
-        prompt = [SystemMessage(system_prompt(agent, state)), *view_for(agent, state["messages"])]
+        prompt = [SystemMessage(system_prompt(agent, state, tuning)), *view_for(agent, state["messages"])]
+        # A space between two agents' sentences in the same turn, so TTS doesn't glue them together.
+        sep = [" " if spoken_this_turn(state["messages"]) else ""]
+
+        def speak(text: str) -> None:
+            runtime.stream_writer(sep[0] + text)  # the ONLY path to the caller's ears
+            sep[0] = ""
+
         try:
-            full = None
-            # A space between two agents' sentences in the same turn, so TTS doesn't glue them together.
-            sep = " " if spoken_this_turn(state["messages"]) else ""
-            async for chunk in bound.astream(prompt):
-                if chunk.text:
-                    runtime.stream_writer(sep + chunk.text)  # the ONLY path to the caller's ears
-                    sep = ""
-                full = chunk if full is None else full + chunk
-            if full is None:
-                raise RuntimeError("the model returned nothing")
-            reply = AIMessage(content=full.content, tool_calls=full.tool_calls, id=full.id, name=agent)
+            full = await _collect(bound, prompt, speak)
+            content, tool_calls = full.content, full.tool_calls
+            if tuning.has("narration_guard") and not tool_calls:
+                content, tool_calls = await _guard(agent, state, runtime, tuning, bound, full, speak, sep)
+            reply = AIMessage(content=content, tool_calls=tool_calls, id=full.id, name=agent)
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("%s failed to produce a reply", agent)
-            runtime.stream_writer(sep + FALLBACK_SPEECH)
+            runtime.stream_writer(sep[0] + FALLBACK_SPEECH)
             reply = AIMessage(content=FALLBACK_SPEECH, name=agent)
         return {"messages": [reply], "notes": []}
 
     specialist.__name__ = agent
     return specialist
+
+
+async def _guard(agent, state, runtime, tuning, bound, full, speak, sep):
+    """Fix C: one corrective retry when a reply claims an action without a tool call.
+
+    The first reply has already been spoken. The retry is buffered: its words are spoken only if it
+    makes a tool call or says something that isn't another unbacked claim. If it doesn't, and the claim
+    was that something changed (a ticket, refund, new date, escalation, "done"), an honest fallback is
+    spoken; a claim to look something up is left as it was. A retry that calls verify_customer is
+    discarded (digits must come from the caller). Any tool call it makes goes through the normal
+    ToolNode and verification gate.
+    """
+    first = full.text or ""
+    claim = unbacked_claim(agent, first, state)
+    if claim is None:
+        return full.content, full.tool_calls
+    t0 = time.perf_counter()
+    note = GUARD_RETRY_NOTE.format(said=claim)
+    retry_prompt = [SystemMessage(system_prompt(agent, state, tuning, also_said=first) + "\n\n" + note),
+                    *view_for(agent, state["messages"])]
+    try:
+        retry = await _collect(bound, retry_prompt, None)
+        extra, tool_calls = (retry.text or "").strip(), retry.tool_calls
+        rejected = [tc for tc in tool_calls if tc["name"] in _NEVER_RETRY]
+        if rejected:
+            extra, tool_calls = "", []
+        if tool_calls or (extra and unbacked_claim(agent, extra, state) is None):
+            outcome = "tool_call" if tool_calls else "text"
+        elif claims_a_change(agent, claim):
+            extra, tool_calls, outcome = GUARD_FALLBACK_SPEECH, [], "fallback"
+        else:
+            extra, tool_calls, outcome = "", [], "rejected_verify" if rejected else "left_as_is"
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("%s: narration guard retry failed", agent)
+        extra, tool_calls = "", []
+        outcome = "fallback" if claims_a_change(agent, claim) else "left_as_is"
+        extra = GUARD_FALLBACK_SPEECH if outcome == "fallback" else ""
+    if extra:
+        sep[0] = " "
+        speak(extra)
+    ms = round((time.perf_counter() - t0) * 1000, 1)
+    logger.warning("narration guard (%s): %r -> %s in %.0f ms", agent, claim, outcome, ms)
+    await send(runtime.context, {"type": "guard", "agent": agent, "claim": claim, "outcome": outcome,
+                                 "retry_ms": ms, "tools": [tc["name"] for tc in tool_calls]}, TRACE_TOPIC)
+    content = " ".join(x for x in (first.strip(), extra) if x)
+    return content, tool_calls
 
 
 def _tool_rounds(msgs: list[AnyMessage], agent: str) -> int:
@@ -296,14 +454,16 @@ async def confirmation_email(state: CallState, runtime: Runtime[CallContext]) ->
 # --------------------------------------------------------------------------- graph
 
 
-def build_graph(model, checkpointer=None):
-    """Compile the call graph. `model` is any LangChain chat model that supports bind_tools."""
+def build_graph(model, checkpointer=None, tuning: Tuning = NO_TUNING):
+    """Compile the call graph. `model` is any LangChain chat model that supports bind_tools.
+
+    `tuning` holds the self-hosted model's fixes (wismo/tuning.py); Claude uses NO_TUNING."""
     g = StateGraph(CallState, context_schema=CallContext)
     g.add_node("begin_turn", begin_turn)
     g.add_node("confirmation_email", confirmation_email)
 
     for agent in AGENTS:
-        g.add_node(agent, make_specialist(agent, model))
+        g.add_node(agent, make_specialist(agent, model, tuning))
         g.add_node(f"{agent}_tools", ToolNode(TOOLS[agent], name=f"{agent}_tools", handle_tool_errors=_tool_errors))
         g.add_conditional_edges(agent, route_after_specialist(agent), [f"{agent}_tools", END])
         after_tools = [agent, *HANDOFFS[agent]] + (["confirmation_email"] if agent == "resolution" else [])

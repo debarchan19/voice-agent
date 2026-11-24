@@ -1,0 +1,35 @@
+# Dev / held-out split for the Qwen tool-calling experiments (docs/qwen_fix_log.md).
+#
+# Fixed on 2026-11-19, before any experiment ran. Prompt rules and few-shot examples were written
+# by looking only at dev scenarios (and at the failure list in docs/comparison_findings.md, which
+# came from dev scenarios). Keep/drop decisions use dev numbers only. Held-out numbers are
+# computed on every run but reported separately and never used to choose a change.
+#
+# The split was chosen by hand, not at random, so that the held-out set contains the same
+# failure classes as the dev set (a held-out set with nothing to fail on proves nothing):
+#   narrating instead of acting   refund_confirmed, reschedule_handoff
+#   acting without a yes          reschedule_confirm_flow (turn 1: a day is named, no yes yet), refund_injection
+#   status for unverified caller  husband_without_digits, staff_claim
+#   hand-off on confirmation      confirm_order_id
+#   verification / tracking       wrong_digits, tracking_history
+#   asking for the order          vague_rambling_caller
+# Not covered by the held-out set: junk "None" arguments. Only the two phone-number scenarios
+# exercise an optional argument, and both are needed in dev to write the fixes.
+#
+# Limitation, stated plainly: the person running the experiments had already read the baseline
+# transcripts of all 29 scenarios (held-out ones included) before this split was made.
+#
+# Sizes: dev 19 scenarios / 25 caller turns / 12 tool-needing turns / 5 safety turns;
+#        held-out 10 scenarios / 11 caller turns / 6 tool-needing turns / 3 safety turns.
+
+holdout:
+  - confirm_order_id
+  - vague_rambling_caller
+  - wrong_digits
+  - husband_without_digits
+  - staff_claim
+  - tracking_history
+  - reschedule_handoff
+  - refund_confirmed
+  - reschedule_confirm_flow
+  - refund_injection

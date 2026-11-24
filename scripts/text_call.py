@@ -46,6 +46,7 @@ from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
 
 from wismo import CallContext, CallTracer, build_graph, summarize_call  # noqa: E402
 from wismo.llm import make_llm  # noqa: E402
+from wismo.tuning import tuning_for  # noqa: E402
 
 
 @dataclass
@@ -221,10 +222,11 @@ async def main(name: str, send_email: bool, show_trace: bool, record: str | None
         return {"ok": True, "to": args[0]}
 
     llm, backend = make_llm(max_tokens=400)  # LLM_BACKEND, default Claude
-    print(f"LLM backend: {backend.label}")
+    tuning = tuning_for(backend.name)
+    print(f"LLM backend: {backend.label} (fixes: {tuning.label})")
     model = CountingModel(llm)
     ctx = CallContext(publish=publish, send_email=email_tool.send_confirmation_email if send_email else fake_email)
-    graph = build_graph(model, checkpointer=InMemorySaver())
+    graph = build_graph(model, checkpointer=InMemorySaver(), tuning=tuning)
     config = {"configurable": {"thread_id": "room-1"}}
     phone = FakeLiveKit(graph, ctx, callbacks=[CallTracer(ctx, backend=backend.label)])
     greeting = phone.chat_ctx.messages()[-1].text_content

@@ -1,0 +1,138 @@
+narration guard (resolution): "I'll reschedule your delivery to that date." -> fallback in 622 ms
+narration guard (order_status): "Let me check if that's possible and get back to you with options." -> tool_call in 812 ms
+narration guard (resolution): 'Let me check if we can reschedule your delivery for Friday, November 20th.' -> tool_call in 793 ms
+narration guard (resolution): 'Reference ticket 1002 has been created for your records.' -> fallback in 760 ms
+narration guard (order_status): 'Okay, let me check on that order for you.' -> left_as_is in 663 ms
+29 scenarios, 36 evaluated turns, 5 run(s), arms: qwen_t0, qwen_t01, qwen, qwen_t03, qwen_p08, qwen_k5, qwen_vendor, qwen_t1, qwen_t1_p08, qwen_t1_k5
+  run 1: 1/29 scenarios (10/1450)narration guard (greeter): "Sure, let's find that out for you." -> text in 666 ms
+  run 1: 2/29 scenarios (20/1450)  run 1: 3/29 scenarios (30/1450)  run 1: 4/29 scenarios (40/1450)  run 1: 5/29 scenarios (50/1450)  run 1: 6/29 scenarios (60/1450)narration guard (greeter): "Okay, let's check that for you." -> tool_call in 619 ms
+narration guard (order_status): 'Okay, let me pull up that order.' -> left_as_is in 582 ms
+  run 1: 7/29 scenarios (70/1450)  run 1: 8/29 scenarios (80/1450)  run 1: 9/29 scenarios (90/1450)narration guard (resolution): 'Let me check if last Monday, November 16, 2026, works for rescheduling your delivery.' -> fallback in 621 ms
+  run 1: 10/29 scenarios (100/1450)narration guard (resolution): 'One moment.' -> left_as_is in 496 ms
+narration guard (resolution): "I'll move your delivery to Friday, November 20, 2026." -> fallback in 557 ms
+narration guard (resolution): 'One moment.' -> left_as_is in 527 ms
+  run 1: 11/29 scenarios (110/1450)  run 1: 12/29 scenarios (120/1450)  run 1: 13/29 scenarios (130/1450)  run 1: 14/29 scenarios (140/1450)narration guard (order_status): 'Sure, let me check on that for you.' -> text in 886 ms
+  run 1: 15/29 scenarios (150/1450)  run 1: 16/29 scenarios (160/1450)  run 1: 17/29 scenarios (170/1450)narration guard (order_status): 'Let me check for more details.' -> left_as_is in 696 ms
+  run 1: 18/29 scenarios (180/1450)tool failed
+Traceback (most recent call last):
+  File "/home/wayne/workspace/voice-agent/.venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 1126, in _execute_tool_async
+    response = await tool.ainvoke(call_args, config)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/wayne/workspace/voice-agent/.venv/lib/python3.11/site-packages/langchain_core/tools/structured.py", line 125, in ainvoke
+    return await super().ainvoke(input, config, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/wayne/workspace/voice-agent/.venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 774, in ainvoke
+    return await self.arun(tool_input, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/wayne/workspace/voice-agent/.venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 1262, in arun
+    raise error_to_raise
+  File "/home/wayne/workspace/voice-agent/.venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 1216, in arun
+    tool_args, tool_kwargs = self._to_args_and_kwargs(tool_input, tool_call_id)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/wayne/workspace/voice-agent/.venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 993, in _to_args_and_kwargs
+    tool_input = self._parse_input(tool_input, tool_call_id)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/wayne/workspace/voice-agent/.venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 834, in _parse_input
+    result_v2 = input_args.model_validate(tool_input)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/wayne/workspace/voice-agent/.venv/lib/python3.11/site-packages/pydantic/main.py", line 792, in model_validate
+    return cls.__pydantic_validator__.validate_python(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pydantic_core._pydantic_core.ValidationError: 1 validation error for create_ticket
+notes
+  Field required [type=missing, input_value={'order_id': 'ORD-60582',...377), server_info=None)}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.14/v/missing
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/wayne/workspace/voice-agent/.venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 1137, in _execute_tool_async
+    raise ToolInvocationError(
+langgraph.prebuilt.tool_node.ToolInvocationError: Error invoking tool 'create_ticket' with kwargs {'order_id': 'ORD-60582', 'type': 'lost_package'} with error:
+ notes: Field required
+ Please fix the error and try again.
+  run 1: 19/29 scenarios (190/1450)  run 1: 20/29 scenarios (200/1450)  run 1: 21/29 scenarios (210/1450)narration guard (order_status): 'Okay, let me pull up your account.' -> tool_call in 650 ms
+narration guard (order_status): "Okay, let me check what's going on with your order." -> left_as_is in 736 ms
+narration guard (order_status): 'Okay, let me look up your orders.' -> tool_call in 633 ms
+  run 1: 22/29 scenarios (220/1450)  run 1: 23/29 scenarios (230/1450)narration guard (order_status): 'One moment.' -> tool_call in 643 ms
+  run 1: 24/29 scenarios (240/1450)  run 1: 25/29 scenarios (250/1450)  run 1: 26/29 scenarios (260/1450)  run 1: 27/29 scenarios (270/1450)  run 1: 28/29 scenarios (280/1450)  run 1: 29/29 scenarios (290/1450)
+  run 2: 1/29 scenarios (300/1450)  run 2: 2/29 scenarios (310/1450)  run 2: 3/29 scenarios (320/1450)  run 2: 4/29 scenarios (330/1450)  run 2: 5/29 scenarios (340/1450)narration guard (order_status): 'Let me check on that second order for you.' -> tool_call in 806 ms
+narration guard (resolution): 'Let me check on that second order real quick.' -> left_as_is in 471 ms
+narration guard (resolution): 'One moment.' -> left_as_is in 940 ms
+narration guard (resolution): 'One moment.' -> left_as_is in 790 ms
+  run 2: 6/29 scenarios (350/1450)narration guard (order_status): 'Okay, let me pull up that order for you.' -> left_as_is in 613 ms
+  run 2: 7/29 scenarios (360/1450)  run 2: 8/29 scenarios (370/1450)narration guard (order_status): 'Let me check if there are any other updates for you.' -> left_as_is in 671 ms
+narration guard (order_status): 'One moment.' -> text in 889 ms
+  run 2: 9/29 scenarios (380/1450)  run 2: 10/29 scenarios (390/1450)  run 2: 11/29 scenarios (400/1450)narration guard (order_status): 'Let me check that for you.' -> tool_call in 644 ms
+narration guard (order_status): 'One moment.' -> tool_call in 648 ms
+narration guard (greeter): 'One moment while I look that up.' -> tool_call in 951 ms
+narration guard (order_status): 'Let me look up your orders using 7 2 0, 5 5 5, 0 1 4 2.' -> tool_call in 827 ms
+narration guard (order_status): 'One moment, let me check your account.' -> tool_call in 642 ms
+narration guard (order_status): 'Let me check that for you.' -> tool_call in 629 ms
+  run 2: 12/29 scenarios (410/1450)  run 2: 13/29 scenarios (420/1450)narration guard (order_status): "I'll arrange for a refund to be processed." -> tool_call in 759 ms
+  run 2: 14/29 scenarios (430/1450)  run 2: 15/29 scenarios (440/1450)  run 2: 16/29 scenarios (450/1450)narration guard (order_status): 'Okay, let me pull up your account.' -> tool_call in 654 ms
+narration guard (order_status): 'Okay, let me pull up your account.' -> tool_call in 649 ms
+narration guard (order_status): 'Okay, let me look up your orders.' -> tool_call in 645 ms
+  run 2: 17/29 scenarios (460/1450)  run 2: 18/29 scenarios (470/1450)narration guard (resolution): "I'll move your delivery to Friday, November 20th." -> fallback in 616 ms
+narration guard (resolution): "I'll reschedule your delivery for Friday, November 20th." -> fallback in 610 ms
+  run 2: 19/29 scenarios (480/1450)  run 2: 20/29 scenarios (490/1450)narration guard (order_status): 'Let me check the latest update for you.' -> left_as_is in 799 ms
+  run 2: 21/29 scenarios (500/1450)narration guard (greeter): "Okay, let's check that order." -> left_as_is in 592 ms
+  run 2: 22/29 scenarios (510/1450)  run 2: 23/29 scenarios (520/1450)narration guard (resolution): 'Let me check the earliest future delivery date available for you.' -> fallback in 734 ms
+  run 2: 24/29 scenarios (530/1450)  run 2: 25/29 scenarios (540/1450)  run 2: 26/29 scenarios (550/1450)  run 2: 27/29 scenarios (560/1450)narration guard (order_status): 'Okay, let me pull up that order for you.' -> left_as_is in 611 ms
+narration guard (greeter): 'Let me check the details of your order first.' -> left_as_is in 630 ms
+narration guard (resolution): 'Let me check the available delivery dates for you.' -> fallback in 476 ms
+narration guard (resolution): "I've rescheduled your delivery for Friday, November 20, 2026." -> tool_call in 781 ms
+  run 2: 28/29 scenarios (570/1450)  run 2: 29/29 scenarios (580/1450)narration guard (order_status): "I'll check the account for 7 2 0, 5 5 5, 0 1 4 2." -> tool_call in 652 ms
+
+  run 3: 1/29 scenarios (590/1450)  run 3: 2/29 scenarios (600/1450)  run 3: 3/29 scenarios (610/1450)narration guard (greeter): 'One moment.' -> tool_call in 646 ms
+narration guard (order_status): 'Okay, let me look up your orders with that number.' -> tool_call in 632 ms
+narration guard (order_status): 'Okay, let me look up your orders.' -> tool_call in 647 ms
+  run 3: 4/29 scenarios (620/1450)  run 3: 5/29 scenarios (630/1450)narration guard (order_status): 'Okay, let me check on that order for you.' -> left_as_is in 612 ms
+  run 3: 6/29 scenarios (640/1450)  run 3: 7/29 scenarios (650/1450)  run 3: 8/29 scenarios (660/1450)  run 3: 9/29 scenarios (670/1450)  run 3: 10/29 scenarios (680/1450)narration guard (order_status): 'Let me transfer you to a specialist who can reschedule your delivery for this Friday.' -> tool_call in 674 ms
+narration guard (greeter): 'Let me check the details of your order first.' -> left_as_is in 630 ms
+narration guard (order_status): 'Sure, let me check what we can do about rescheduling.' -> tool_call in 761 ms
+narration guard (order_status): 'Okay, let me check on that order for you.' -> tool_call in 610 ms
+  run 3: 11/29 scenarios (690/1450)  run 3: 12/29 scenarios (700/1450)  run 3: 13/29 scenarios (710/1450)narration guard (resolution): 'One moment.' -> left_as_is in 464 ms
+  run 3: 14/29 scenarios (720/1450)transfer_to_order_status: treating phone='' as missing
+  run 3: 15/29 scenarios (730/1450)  run 3: 16/29 scenarios (740/1450)  run 3: 17/29 scenarios (750/1450)  run 3: 18/29 scenarios (760/1450)  run 3: 19/29 scenarios (770/1450)  run 3: 20/29 scenarios (780/1450)  run 3: 21/29 scenarios (790/1450)  run 3: 22/29 scenarios (800/1450)  run 3: 23/29 scenarios (810/1450)narration guard (order_status): "Please provide the last four digits of the phone number on the account, and I'll check that for you right away." -> text in 693 ms
+narration guard (order_status): "Please provide the last four digits of the phone number on the account, and I'll check the status right away." -> left_as_is in 700 ms
+  run 3: 24/29 scenarios (820/1450)  run 3: 25/29 scenarios (830/1450)  run 3: 26/29 scenarios (840/1450)  run 3: 27/29 scenarios (850/1450)narration guard (resolution): 'One moment.' -> tool_call in 739 ms
+narration guard (resolution): 'One moment.' -> left_as_is in 528 ms
+  run 3: 28/29 scenarios (860/1450)narration guard (order_status): 'Let me look up ORD-48213 for you.' -> left_as_is in 701 ms
+narration guard (order_status): 'Let me look up what’s on your phone number.' -> left_as_is in 561 ms
+  run 3: 29/29 scenarios (870/1450)
+  run 4: 1/29 scenarios (880/1450)  run 4: 2/29 scenarios (890/1450)  run 4: 3/29 scenarios (900/1450)  run 4: 4/29 scenarios (910/1450)narration guard (order_status): 'Okay, let me pull up your account.' -> tool_call in 649 ms
+narration guard (order_status): 'Okay, let me pull up your account.' -> tool_call in 647 ms
+  run 4: 5/29 scenarios (920/1450)  run 4: 6/29 scenarios (930/1450)  run 4: 7/29 scenarios (940/1450)  run 4: 8/29 scenarios (950/1450)  run 4: 9/29 scenarios (960/1450)  run 4: 10/29 scenarios (970/1450)narration guard (resolution): "I'll process that for you right away." -> left_as_is in 682 ms
+narration guard (resolution): 'One moment.' -> left_as_is in 603 ms
+  run 4: 11/29 scenarios (980/1450)  run 4: 12/29 scenarios (990/1450)narration guard (resolution): "Okay, let's move your delivery to Friday, November 20th." -> fallback in 709 ms
+narration guard (order_status): 'Okay, let me pull up that order for you.' -> tool_call in 615 ms
+narration guard (resolution): "I'll reschedule your delivery for that day." -> fallback in 619 ms
+  run 4: 13/29 scenarios (1000/1450)  run 4: 14/29 scenarios (1010/1450)  run 4: 15/29 scenarios (1020/1450)  run 4: 16/29 scenarios (1030/1450)  run 4: 17/29 scenarios (1040/1450)narration guard (resolution): 'One moment.' -> left_as_is in 908 ms
+narration guard (resolution): 'One moment.' -> left_as_is in 476 ms
+  run 4: 18/29 scenarios (1050/1450)narration guard (order_status): "Since you don't have the phone number, let me look up the orders on your account using your phone number instead." -> left_as_is in 759 ms
+  run 4: 19/29 scenarios (1060/1450)  run 4: 20/29 scenarios (1070/1450)  run 4: 21/29 scenarios (1080/1450)  run 4: 22/29 scenarios (1090/1450)  run 4: 23/29 scenarios (1100/1450)  run 4: 24/29 scenarios (1110/1450)narration guard (resolution): 'One moment.' -> left_as_is in 531 ms
+narration guard (resolution): 'One moment.' -> left_as_is in 521 ms
+narration guard (resolution): 'One moment.' -> left_as_is in 502 ms
+  run 4: 25/29 scenarios (1120/1450)narration guard (order_status): 'Okay, let me pull up that order.' -> left_as_is in 582 ms
+  run 4: 26/29 scenarios (1130/1450)  run 4: 27/29 scenarios (1140/1450)narration guard (order_status): 'Let me look up what orders are on your phone number.' -> left_as_is in 669 ms
+  run 4: 28/29 scenarios (1150/1450)narration guard (order_status): 'One moment.' -> text in 613 ms
+  run 4: 29/29 scenarios (1160/1450)
+  run 5: 1/29 scenarios (1170/1450)  run 5: 2/29 scenarios (1180/1450)  run 5: 3/29 scenarios (1190/1450)  run 5: 4/29 scenarios (1200/1450)  run 5: 5/29 scenarios (1210/1450)narration guard (resolution): 'One moment.' -> left_as_is in 762 ms
+  run 5: 6/29 scenarios (1220/1450)narration guard (order_status): "Please provide those digits, and I'll check the order for you." -> left_as_is in 701 ms
+  run 5: 7/29 scenarios (1230/1450)  run 5: 8/29 scenarios (1240/1450)  run 5: 9/29 scenarios (1250/1450)narration guard (order_status): 'Let me transfer you to a specialist who can reschedule your delivery.' -> tool_call in 755 ms
+narration guard (resolution): 'Let me transfer you to a specialist who can reschedule your delivery.' -> text in 551 ms
+  run 5: 10/29 scenarios (1260/1450)  run 5: 11/29 scenarios (1270/1450)  run 5: 12/29 scenarios (1280/1450)  run 5: 13/29 scenarios (1290/1450)  run 5: 14/29 scenarios (1300/1450)  run 5: 15/29 scenarios (1310/1450)  run 5: 16/29 scenarios (1320/1450)  run 5: 17/29 scenarios (1330/1450)  run 5: 18/29 scenarios (1340/1450)  run 5: 19/29 scenarios (1350/1450)  run 5: 20/29 scenarios (1360/1450)narration guard (order_status): 'Okay, let me pull up your account.' -> left_as_is in 969 ms
+  run 5: 21/29 scenarios (1370/1450)narration guard (resolution): 'I will request a refund for order ORD-51907 with the reason being the delayed delivery.' -> fallback in 706 ms
+  run 5: 22/29 scenarios (1380/1450)  run 5: 23/29 scenarios (1390/1450)narration guard (resolution): "I'll open a refund request for order ORD-51907." -> fallback in 864 ms
+  run 5: 24/29 scenarios (1400/1450)narration guard (order_status): "Okay, let's check that for you." -> tool_call in 695 ms
+  run 5: 25/29 scenarios (1410/1450)narration guard (order_status): 'Okay, let me look up that order for you.' -> text in 553 ms
+  run 5: 26/29 scenarios (1420/1450)  run 5: 27/29 scenarios (1430/1450)narration guard (resolution): 'One moment.' -> left_as_is in 499 ms
+  run 5: 28/29 scenarios (1440/1450)narration guard (order_status): 'Let me transfer you to someone who can help with that right away.' -> tool_call in 676 ms
+narration guard (order_status): 'Let me transfer you to a specialist who can help reschedule your delivery.' -> fallback in 734 ms
+narration guard (order_status): 'Okay, let me pull up that order.' -> left_as_is in 494 ms
+narration guard (order_status): 'Let me transfer you to a specialist who can help with that request.' -> fallback in 642 ms
+  run 5: 29/29 scenarios (1450/1450)
+
+Raw results: eval/results/qwen_fixes/D_sampling
+Summary: eval/results/qwen_fixes/D_sampling/summary.md

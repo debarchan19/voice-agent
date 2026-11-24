@@ -35,8 +35,13 @@ def call(name: str, text: str = "", **args) -> AIMessage:
     return AIMessage(content=text, tool_calls=[{"name": name, "args": args, "id": f"call_{next(_ids)}"}])
 
 
+def tool_name(t) -> str:
+    """A tool object, or an OpenAI-format schema dict (what tuned backends bind; see wismo/tool_specs.py)."""
+    return t["function"]["name"] if isinstance(t, dict) else t.name
+
+
 def agent_of(tools) -> str:
-    names = {t.name for t in tools}
+    names = {tool_name(t) for t in tools}
     if "reschedule_delivery" in names:
         return "resolution"
     if "verify_customer" in names:
